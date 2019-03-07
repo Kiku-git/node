@@ -25,8 +25,15 @@ const fixtures = require('../common/fixtures');
 if (!common.hasCrypto)
   common.skip('missing crypto');
 
-// disable strict server certificate validation by the client
+// Disable strict server certificate validation by the client
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+common.expectWarning(
+  'Warning',
+  'Setting the NODE_TLS_REJECT_UNAUTHORIZED environment variable to \'0\' ' +
+  'makes TLS connections and HTTPS requests insecure by disabling ' +
+  'certificate verification.'
+);
 
 const assert = require('assert');
 const https = require('https');
@@ -50,7 +57,7 @@ const cert3 = read('agent3-cert.pem');
 const ca1 = read('ca1-cert.pem');
 const ca2 = read('ca2-cert.pem');
 
-// different agents to use different CA lists.
+// Different agents to use different CA lists.
 // this api is beyond bad.
 const agent0 = new https.Agent();
 const agent1 = new https.Agent({ ca: [ca1] });

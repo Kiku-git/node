@@ -39,10 +39,11 @@ TEST(ConcurrentMarking) {
   }
 
   ConcurrentMarking::MarkingWorklist shared, bailout, on_hold;
+  ConcurrentMarking::EmbedderTracingWorklist embedder_objects;
   WeakObjects weak_objects;
-  ConcurrentMarking* concurrent_marking =
-      new ConcurrentMarking(heap, &shared, &bailout, &on_hold, &weak_objects);
-  PublishSegment(&shared, heap->undefined_value());
+  ConcurrentMarking* concurrent_marking = new ConcurrentMarking(
+      heap, &shared, &bailout, &on_hold, &weak_objects, &embedder_objects);
+  PublishSegment(&shared, ReadOnlyRoots(heap).undefined_value());
   concurrent_marking->ScheduleTasks();
   concurrent_marking->Stop(
       ConcurrentMarking::StopRequest::COMPLETE_TASKS_FOR_TESTING);
@@ -61,14 +62,15 @@ TEST(ConcurrentMarkingReschedule) {
   }
 
   ConcurrentMarking::MarkingWorklist shared, bailout, on_hold;
+  ConcurrentMarking::EmbedderTracingWorklist embedder_objects;
   WeakObjects weak_objects;
-  ConcurrentMarking* concurrent_marking =
-      new ConcurrentMarking(heap, &shared, &bailout, &on_hold, &weak_objects);
-  PublishSegment(&shared, heap->undefined_value());
+  ConcurrentMarking* concurrent_marking = new ConcurrentMarking(
+      heap, &shared, &bailout, &on_hold, &weak_objects, &embedder_objects);
+  PublishSegment(&shared, ReadOnlyRoots(heap).undefined_value());
   concurrent_marking->ScheduleTasks();
   concurrent_marking->Stop(
       ConcurrentMarking::StopRequest::COMPLETE_ONGOING_TASKS);
-  PublishSegment(&shared, heap->undefined_value());
+  PublishSegment(&shared, ReadOnlyRoots(heap).undefined_value());
   concurrent_marking->RescheduleTasksIfNeeded();
   concurrent_marking->Stop(
       ConcurrentMarking::StopRequest::COMPLETE_TASKS_FOR_TESTING);
@@ -87,15 +89,16 @@ TEST(ConcurrentMarkingPreemptAndReschedule) {
   }
 
   ConcurrentMarking::MarkingWorklist shared, bailout, on_hold;
+  ConcurrentMarking::EmbedderTracingWorklist embedder_objects;
   WeakObjects weak_objects;
-  ConcurrentMarking* concurrent_marking =
-      new ConcurrentMarking(heap, &shared, &bailout, &on_hold, &weak_objects);
+  ConcurrentMarking* concurrent_marking = new ConcurrentMarking(
+      heap, &shared, &bailout, &on_hold, &weak_objects, &embedder_objects);
   for (int i = 0; i < 5000; i++)
-    PublishSegment(&shared, heap->undefined_value());
+    PublishSegment(&shared, ReadOnlyRoots(heap).undefined_value());
   concurrent_marking->ScheduleTasks();
   concurrent_marking->Stop(ConcurrentMarking::StopRequest::PREEMPT_TASKS);
   for (int i = 0; i < 5000; i++)
-    PublishSegment(&shared, heap->undefined_value());
+    PublishSegment(&shared, ReadOnlyRoots(heap).undefined_value());
   concurrent_marking->RescheduleTasksIfNeeded();
   concurrent_marking->Stop(
       ConcurrentMarking::StopRequest::COMPLETE_TASKS_FOR_TESTING);
@@ -115,6 +118,32 @@ TEST(ConcurrentMarkingMarkedBytes) {
   heap->concurrent_marking()->Stop(
       ConcurrentMarking::StopRequest::COMPLETE_TASKS_FOR_TESTING);
   CHECK_GE(heap->concurrent_marking()->TotalMarkedBytes(), root->Size());
+}
+
+UNINITIALIZED_TEST(ConcurrentMarkingStoppedOnTeardown) {
+  if (!i::FLAG_concurrent_marking) return;
+
+  v8::Isolate::CreateParams create_params;
+  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
+  v8::Isolate* isolate = v8::Isolate::New(create_params);
+
+  {
+    Isolate* i_isolate = reinterpret_cast<Isolate*>(isolate);
+    Factory* factory = i_isolate->factory();
+
+    v8::Isolate::Scope isolate_scope(isolate);
+    v8::HandleScope handle_scope(isolate);
+    v8::Context::New(isolate)->Enter();
+
+    for (int i = 0; i < 10000; i++) {
+      factory->NewJSWeakMap();
+    }
+
+    Heap* heap = i_isolate->heap();
+    heap::SimulateIncrementalMarking(heap, false);
+  }
+
+  isolate->Dispose();
 }
 
 }  // namespace heap

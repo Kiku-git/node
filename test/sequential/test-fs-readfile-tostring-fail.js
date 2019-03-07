@@ -9,7 +9,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const cp = require('child_process');
-const kStringMaxLength = process.binding('buffer').kStringMaxLength;
+const kStringMaxLength = require('buffer').constants.MAX_STRING_LENGTH;
 if (common.isAIX && (Number(cp.execSync('ulimit -f')) * 512) < kStringMaxLength)
   common.skip('intensive toString tests due to file size confinements');
 
@@ -48,7 +48,7 @@ stream.on('finish', common.mustCall(function() {
 function destroy() {
   try {
     fs.unlinkSync(file);
-  } catch (err) {
+  } catch {
     // it may not exist
   }
 }

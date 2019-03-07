@@ -234,7 +234,8 @@ Node* JSInliner::CreateArtificialFrameState(Node* node, Node* outer_frame_state,
                                             int parameter_count,
                                             BailoutId bailout_id,
                                             FrameStateType frame_state_type,
-                                            Handle<SharedFunctionInfo> shared) {
+                                            Handle<SharedFunctionInfo> shared,
+                                            Node* context) {
   const FrameStateFunctionInfo* state_info =
       common()->CreateFrameStateFunctionInfo(frame_state_type,
                                              parameter_count + 1, 0, shared);
@@ -251,9 +252,11 @@ Node* JSInliner::CreateArtificialFrameState(Node* node, Node* outer_frame_state,
       static_cast<int>(params.size()), SparseInputMask::Dense());
   Node* params_node = graph()->NewNode(
       op_param, static_cast<int>(params.size()), &params.front());
-  return graph()->NewNode(op, params_node, node0, node0,
-                          jsgraph()->UndefinedConstant(), node->InputAt(0),
-                          outer_frame_state);
+  if (!context) {
+    context = jsgraph()->UndefinedConstant();
+  }
+  return graph()->NewNode(op, params_node, node0, node0, context,
+                          node->InputAt(0), outer_frame_state);
 }
 
 namespace {
@@ -298,7 +301,7 @@ bool JSInliner::DetermineCallTarget(
       return false;
     }
 
-    shared_info_out = handle(function->shared());
+    shared_info_out = handle(function->shared(), isolate());
     return true;
   }
 
@@ -343,8 +346,8 @@ void JSInliner::DetermineCallContext(
     JSFunction::EnsureFeedbackVector(function);
 
     // The inlinee specializes to the context from the JSFunction object.
-    context_out = jsgraph()->Constant(handle(function->context()));
-    feedback_vector_out = handle(function->feedback_vector());
+    context_out = jsgraph()->Constant(handle(function->context(), isolate()));
+    feedback_vector_out = handle(function->feedback_vector(), isolate());
     return;
   }
 
@@ -358,7 +361,8 @@ void JSInliner::DetermineCallContext(
 
     // The inlinee uses the locally provided context at instantiation.
     context_out = NodeProperties::GetContextInput(match.node());
-    feedback_vector_out = handle(FeedbackVector::cast(cell->value()));
+    feedback_vector_out =
+        handle(FeedbackVector::cast(cell->value()), isolate());
     return;
   }
 
@@ -372,7 +376,7 @@ Reduction JSInliner::Reduce(Node* node) {
 }
 
 Handle<Context> JSInliner::native_context() const {
-  return handle(info_->context()->native_context());
+  return handle(info_->context()->native_context(), isolate());
 }
 
 Reduction JSInliner::ReduceJSCall(Node* node) {
@@ -484,9 +488,10 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
     if (info_->is_bailout_on_uninitialized()) {
       flags |= JSTypeHintLowering::kBailoutOnUninitialized;
     }
+    CallFrequency frequency = call.frequency();
     BytecodeGraphBuilder graph_builder(
         zone(), shared_info, feedback_vector, BailoutId::None(), jsgraph(),
-        call.frequency(), source_positions_, native_context(), inlining_id,
+        frequency, source_positions_, native_context(), inlining_id,
         flags, false, info_->is_analyze_environment_liveness());
     graph_builder.CreateGraph();
 
@@ -534,76 +539,32 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
     // instantiation but before the invocation (i.e. inside {JSConstructStub}
     // where execution continues at {construct_stub_create_deopt_pc_offset}).
     Node* receiver = jsgraph()->TheHoleConstant();  // Implicit receiver.
+    Node* context = NodeProperties::GetContextInput(node);
     if (NeedsImplicitReceiver(shared_info)) {
       Node* effect = NodeProperties::GetEffectInput(node);
       Node* control = NodeProperties::GetControlInput(node);
-      Node* context = NodeProperties::GetContextInput(node);
       Node* frame_state_inside = CreateArtificialFrameState(
           node, frame_state, call.formal_arguments(),
           BailoutId::ConstructStubCreate(), FrameStateType::kConstructStub,
-          shared_info);
+          shared_info, context);
       Node* create =
           graph()->NewNode(javascript()->Create(), call.target(), new_target,
                            context, frame_state_inside, effect, control);
       uncaught_subcalls.push_back(create);  // Adds {IfSuccess} & {IfException}.
       NodeProperties::ReplaceControlInput(node, create);
       NodeProperties::ReplaceEffectInput(node, create);
-      Node* node_success =
-          NodeProperties::FindSuccessfulControlProjection(node);
       // Placeholder to hold {node}'s value dependencies while {node} is
       // replaced.
       Node* dummy = graph()->NewNode(common()->Dead());
       NodeProperties::ReplaceUses(node, dummy, node, node, node);
       Node* result;
-      if (FLAG_harmony_restrict_constructor_return &&
-          IsClassConstructor(shared_info->kind())) {
-        Node* is_undefined =
-            graph()->NewNode(simplified()->ReferenceEqual(), node,
-                             jsgraph()->UndefinedConstant());
-        Node* branch_is_undefined =
-            graph()->NewNode(common()->Branch(), is_undefined, node_success);
-        Node* branch_is_undefined_true =
-            graph()->NewNode(common()->IfTrue(), branch_is_undefined);
-        Node* branch_is_undefined_false =
-            graph()->NewNode(common()->IfFalse(), branch_is_undefined);
-        Node* is_receiver =
-            graph()->NewNode(simplified()->ObjectIsReceiver(), node);
-        Node* branch_is_receiver = graph()->NewNode(
-            common()->Branch(), is_receiver, branch_is_undefined_false);
-        Node* branch_is_receiver_true =
-            graph()->NewNode(common()->IfTrue(), branch_is_receiver);
-        Node* branch_is_receiver_false =
-            graph()->NewNode(common()->IfFalse(), branch_is_receiver);
-        branch_is_receiver_false =
-            graph()->NewNode(javascript()->CallRuntime(
-                                 Runtime::kThrowConstructorReturnedNonObject),
-                             context, NodeProperties::GetFrameStateInput(node),
-                             node, branch_is_receiver_false);
-        uncaught_subcalls.push_back(branch_is_receiver_false);
-        branch_is_receiver_false =
-            graph()->NewNode(common()->Throw(), branch_is_receiver_false,
-                             branch_is_receiver_false);
-        NodeProperties::MergeControlToEnd(graph(), common(),
-                                          branch_is_receiver_false);
-        Node* merge =
-            graph()->NewNode(common()->Merge(2), branch_is_undefined_true,
-                             branch_is_receiver_true);
-        result =
-            graph()->NewNode(common()->Phi(MachineRepresentation::kTagged, 2),
-                             create, node, merge);
-        ReplaceWithValue(node_success, node_success, node_success, merge);
-        // Fix input destroyed by the above {ReplaceWithValue} call.
-        NodeProperties::ReplaceControlInput(branch_is_undefined, node_success,
-                                            0);
-      } else {
-        // Insert a check of the return value to determine whether the return
-        // value or the implicit receiver should be selected as a result of the
-        // call.
-        Node* check = graph()->NewNode(simplified()->ObjectIsReceiver(), node);
-        result =
-            graph()->NewNode(common()->Select(MachineRepresentation::kTagged),
-                             check, node, create);
-      }
+      // Insert a check of the return value to determine whether the return
+      // value or the implicit receiver should be selected as a result of the
+      // call.
+      Node* check = graph()->NewNode(simplified()->ObjectIsReceiver(), node);
+      result =
+          graph()->NewNode(common()->Select(MachineRepresentation::kTagged),
+                           check, node, create);
       receiver = create;  // The implicit receiver.
       ReplaceWithValue(dummy, result);
     } else if (IsDerivedConstructor(shared_info->kind())) {
@@ -637,10 +598,10 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
     node->ReplaceInput(1, receiver);
     // Insert a construct stub frame into the chain of frame states. This will
     // reconstruct the proper frame when deoptimizing within the constructor.
-    frame_state =
-        CreateArtificialFrameState(node, frame_state, call.formal_arguments(),
-                                   BailoutId::ConstructStubInvoke(),
-                                   FrameStateType::kConstructStub, shared_info);
+    frame_state = CreateArtificialFrameState(
+        node, frame_state, call.formal_arguments(),
+        BailoutId::ConstructStubInvoke(), FrameStateType::kConstructStub,
+        shared_info, context);
   }
 
   // Insert a JSConvertReceiver node for sloppy callees. Note that the context
@@ -648,10 +609,10 @@ Reduction JSInliner::ReduceJSCall(Node* node) {
   if (node->opcode() == IrOpcode::kJSCall &&
       is_sloppy(shared_info->language_mode()) && !shared_info->native()) {
     Node* effect = NodeProperties::GetEffectInput(node);
-    if (NodeProperties::CanBePrimitive(call.receiver(), effect)) {
+    if (NodeProperties::CanBePrimitive(isolate(), call.receiver(), effect)) {
       CallParameters const& p = CallParametersOf(node->op());
       Node* global_proxy = jsgraph()->HeapConstant(
-          handle(info_->native_context()->global_proxy()));
+          handle(info_->native_context()->global_proxy(), isolate()));
       Node* receiver = effect =
           graph()->NewNode(simplified()->ConvertReceiver(p.convert_mode()),
                            call.receiver(), global_proxy, effect, start);

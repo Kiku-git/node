@@ -30,7 +30,8 @@ const options = {
   port: undefined
 };
 
-// start a tcp server that closes incoming connections immediately
+process.env.NODE_DEBUG = 'http';
+// Start a tcp server that closes incoming connections immediately
 const server = net.createServer(function(client) {
   client.destroy();
   server.close();

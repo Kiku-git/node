@@ -44,9 +44,6 @@ assert.strictEqual(util.format(symbol), 'Symbol(foo)');
 assert.strictEqual(util.format('foo', symbol), 'foo Symbol(foo)');
 assert.strictEqual(util.format('%s', symbol), 'Symbol(foo)');
 assert.strictEqual(util.format('%j', symbol), 'undefined');
-assert.throws(function() {
-  util.format('%d', symbol);
-}, /^TypeError: Cannot convert a Symbol value to a number$/);
 
 // Number format specifier
 assert.strictEqual(util.format('%d'), '%d');
@@ -57,8 +54,21 @@ assert.strictEqual(util.format('%d', '42.0'), '42');
 assert.strictEqual(util.format('%d', 1.5), '1.5');
 assert.strictEqual(util.format('%d', -0.5), '-0.5');
 assert.strictEqual(util.format('%d', ''), '0');
+assert.strictEqual(util.format('%d', Symbol()), 'NaN');
 assert.strictEqual(util.format('%d %d', 42, 43), '42 43');
 assert.strictEqual(util.format('%d %d', 42), '42 %d');
+assert.strictEqual(
+  util.format('%d', 1180591620717411303424),
+  '1.1805916207174113e+21'
+);
+assert.strictEqual(
+  util.format('%d', 1180591620717411303424n),
+  '1180591620717411303424n'
+);
+assert.strictEqual(
+  util.format('%d %d', 1180591620717411303424n, 12345678901234567890123n),
+  '1180591620717411303424n 12345678901234567890123n'
+);
 
 // Integer format specifier
 assert.strictEqual(util.format('%i'), '%i');
@@ -69,8 +79,31 @@ assert.strictEqual(util.format('%i', '42.0'), '42');
 assert.strictEqual(util.format('%i', 1.5), '1');
 assert.strictEqual(util.format('%i', -0.5), '0');
 assert.strictEqual(util.format('%i', ''), 'NaN');
+assert.strictEqual(util.format('%i', Symbol()), 'NaN');
 assert.strictEqual(util.format('%i %i', 42, 43), '42 43');
 assert.strictEqual(util.format('%i %i', 42), '42 %i');
+assert.strictEqual(
+  util.format('%i', 1180591620717411303424),
+  '1'
+);
+assert.strictEqual(
+  util.format('%i', 1180591620717411303424n),
+  '1180591620717411303424n'
+);
+assert.strictEqual(
+  util.format('%i %i', 1180591620717411303424n, 12345678901234567890123n),
+  '1180591620717411303424n 12345678901234567890123n'
+);
+
+assert.strictEqual(
+  util.format('%d %i', 1180591620717411303424n, 12345678901234567890123n),
+  '1180591620717411303424n 12345678901234567890123n'
+);
+
+assert.strictEqual(
+  util.format('%i %d', 1180591620717411303424n, 12345678901234567890123n),
+  '1180591620717411303424n 12345678901234567890123n'
+);
 
 // Float format specifier
 assert.strictEqual(util.format('%f'), '%f');
@@ -82,6 +115,8 @@ assert.strictEqual(util.format('%f', 1.5), '1.5');
 assert.strictEqual(util.format('%f', -0.5), '-0.5');
 assert.strictEqual(util.format('%f', Math.PI), '3.141592653589793');
 assert.strictEqual(util.format('%f', ''), 'NaN');
+assert.strictEqual(util.format('%f', Symbol('foo')), 'NaN');
+assert.strictEqual(util.format('%f', 5n), '5');
 assert.strictEqual(util.format('%f %f', 42, 43), '42 43');
 assert.strictEqual(util.format('%f %f', 42), '42 %f');
 
@@ -230,6 +265,10 @@ assert.strictEqual(util.format('percent: %d%, fraction: %d', 10, 0.1),
                    'percent: 10%, fraction: 0.1');
 assert.strictEqual(util.format('abc%', 1), 'abc% 1');
 
+// Additional arguments after format specifiers
+assert.strictEqual(util.format('%i', 1, 'number'), '1 number');
+assert.strictEqual(util.format('%i', 1, () => {}), '1 [Function]');
+
 {
   const o = {};
   o.o = o;
@@ -269,6 +308,41 @@ function BadCustomError(msg) {
   Object.defineProperty(this, 'name',
                         { value: 'BadCustomError', enumerable: false });
 }
-util.inherits(BadCustomError, Error);
+Object.setPrototypeOf(BadCustomError.prototype, Error.prototype);
+Object.setPrototypeOf(BadCustomError, Error);
 assert.strictEqual(util.format(new BadCustomError('foo')),
                    '[BadCustomError: foo]');
+
+// The format of arguments should not depend on type of the first argument
+assert.strictEqual(util.format('1', '1'), '1 1');
+assert.strictEqual(util.format(1, '1'), '1 1');
+assert.strictEqual(util.format('1', 1), '1 1');
+assert.strictEqual(util.format(1, -0), '1 -0');
+assert.strictEqual(util.format('1', () => {}), '1 [Function]');
+assert.strictEqual(util.format(1, () => {}), '1 [Function]');
+assert.strictEqual(util.format('1', "'"), "1 '");
+assert.strictEqual(util.format(1, "'"), "1 '");
+assert.strictEqual(util.format('1', 'number'), '1 number');
+assert.strictEqual(util.format(1, 'number'), '1 number');
+assert.strictEqual(util.format(5n), '5n');
+assert.strictEqual(util.format(5n, 5n), '5n 5n');
+
+// Check `formatWithOptions`.
+assert.strictEqual(
+  util.formatWithOptions(
+    { colors: true },
+    true, undefined, Symbol(), 1, 5n, null, 'foobar'
+  ),
+  '\u001b[33mtrue\u001b[39m ' +
+    '\u001b[90mundefined\u001b[39m ' +
+    '\u001b[32mSymbol()\u001b[39m ' +
+    '\u001b[33m1\u001b[39m ' +
+    '\u001b[33m5n\u001b[39m ' +
+    '\u001b[1mnull\u001b[22m ' +
+    'foobar'
+);
+
+assert.strictEqual(
+  util.format(new SharedArrayBuffer(4)),
+  'SharedArrayBuffer { [Uint8Contents]: <00 00 00 00>, byteLength: 4 }'
+);

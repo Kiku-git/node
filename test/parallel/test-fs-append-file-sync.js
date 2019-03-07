@@ -39,7 +39,7 @@ const data = '南越国是前203年至前111年存在于岭南地区的一个国
 const tmpdir = require('../common/tmpdir');
 tmpdir.refresh();
 
-// test that empty file will be created and have content added
+// Test that empty file will be created and have content added
 const filename = join(tmpdir.path, 'append-sync.txt');
 
 fs.appendFileSync(filename, data);
@@ -48,7 +48,7 @@ const fileData = fs.readFileSync(filename);
 
 assert.strictEqual(Buffer.byteLength(data), fileData.length);
 
-// test that appends data to a non empty file
+// Test that appends data to a non empty file
 const filename2 = join(tmpdir.path, 'append-sync2.txt');
 fs.writeFileSync(filename2, currentFileData);
 
@@ -59,7 +59,7 @@ const fileData2 = fs.readFileSync(filename2);
 assert.strictEqual(Buffer.byteLength(data) + currentFileData.length,
                    fileData2.length);
 
-// test that appendFileSync accepts buffers
+// Test that appendFileSync accepts buffers
 const filename3 = join(tmpdir.path, 'append-sync3.txt');
 fs.writeFileSync(filename3, currentFileData);
 
@@ -87,7 +87,7 @@ const fileData4 = fs.readFileSync(filename4);
 assert.strictEqual(Buffer.byteLength(String(num)) + currentFileData.length,
                    fileData4.length);
 
-// test that appendFile accepts file descriptors
+// Test that appendFile accepts file descriptors
 const filename5 = join(tmpdir.path, 'append-sync5.txt');
 fs.writeFileSync(filename5, currentFileData);
 

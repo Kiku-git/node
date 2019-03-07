@@ -38,6 +38,7 @@
 #include "src/objects-inl.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/test-code-stubs.h"
+#include "test/common/assembler-tester.h"
 
 namespace v8 {
 namespace internal {
@@ -53,8 +54,8 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
   MacroAssembler masm(isolate, buffer, static_cast<int>(allocated),
                       v8::internal::CodeObjectRequired::kYes);
 
-  DoubleToIStub stub(isolate, destination_reg);
-  byte* start = stub.GetCode()->raw_instruction_start();
+  Handle<Code> code = BUILTIN_CODE(isolate, DoubleToI);
+  Address start = code->InstructionStart();
 
   __ push(ebx);
   __ push(ecx);
@@ -66,7 +67,7 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
   // Save registers make sure they don't get clobbered.
   int reg_num = 0;
   for (; reg_num < Register::kNumRegisters; ++reg_num) {
-    if (RegisterConfiguration::Default()->IsAllocatableGeneralCode(reg_num)) {
+    if (GetRegConfig()->IsAllocatableGeneralCode(reg_num)) {
       Register reg = Register::from_code(reg_num);
       if (reg != esp && reg != ebp && reg != destination_reg) {
         __ push(reg);
@@ -81,12 +82,13 @@ ConvertDToIFunc MakeConvertDToIFuncTrampoline(Isolate* isolate,
 
   // Call through to the actual stub
   __ call(start, RelocInfo::EXTERNAL_REFERENCE);
+  __ mov(destination_reg, MemOperand(esp, 0));
 
   __ add(esp, Immediate(kDoubleSize));
 
   // Make sure no registers have been unexpectedly clobbered
   for (--reg_num; reg_num >= 0; --reg_num) {
-    if (RegisterConfiguration::Default()->IsAllocatableGeneralCode(reg_num)) {
+    if (GetRegConfig()->IsAllocatableGeneralCode(reg_num)) {
       Register reg = Register::from_code(reg_num);
       if (reg != esp && reg != ebp && reg != destination_reg) {
         __ cmp(reg, MemOperand(esp, 0));

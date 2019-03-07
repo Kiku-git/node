@@ -29,7 +29,7 @@
 #include <stdlib.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1600
-# include "stdint-msvc2008.h"
+# include "uv/stdint-msvc2008.h"
 #else
 # include <stdint.h>
 #endif
@@ -179,6 +179,12 @@ extern int snprintf(char*, size_t, const char*, ...);
 # define UNUSED __attribute__((unused))
 #else
 # define UNUSED
+#endif
+
+#if defined(_WIN32)
+#define notify_parent_process() ((void) 0)
+#else
+extern void notify_parent_process(void);
 #endif
 
 /* Fully close a loop */

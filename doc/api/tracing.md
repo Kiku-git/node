@@ -18,12 +18,17 @@ The available categories are:
   The [`async_hooks`] events have a unique `asyncId` and a special `triggerId`
   `triggerAsyncId` property.
 * `node.bootstrap` - Enables capture of Node.js bootstrap milestones.
+* `node.console` - Enables capture of `console.time()` and `console.count()`
+  output.
+* `node.environment` - Enables capture of Node.js Environment milestones.
+* `node.fs.sync` - Enables capture of trace data for file system sync methods.
 * `node.perf` - Enables capture of [Performance API] measurements.
   * `node.perf.usertiming` - Enables capture of only Performance API User Timing
     measures and marks.
   * `node.perf.timerify` - Enables capture of only Performance API timerify
     measurements.
-* `node.fs.sync` - Enables capture of trace data for file system sync methods.
+* `node.promises.rejections` - Enables capture of trace data tracking the number
+  of unhandled Promise rejections and handled-after-rejections.
 * `node.vm.script` - Enables capture of trace data for the `vm` module's
   `runInNewContext()`, `runInContext()`, and `runInThisContext()` methods.
 * `v8` - The [V8] events are GC, compiling, and execution related.
@@ -66,7 +71,7 @@ tab of Chrome.
 The logging file is by default called `node_trace.${rotation}.log`, where
 `${rotation}` is an incrementing log-rotation id. The filepath pattern can
 be specified with `--trace-event-file-pattern` that accepts a template
-string that supports `${rotation}` and `${pid}`. For example:
+string that supports `${rotation}` and `${pid}`:
 
 ```txt
 node --trace-event-categories v8 --trace-event-file-pattern '${pid}-${rotation}.log' server.js
@@ -76,6 +81,8 @@ Starting with Node.js 10.0.0, the tracing system uses the same time source
 as the one used by `process.hrtime()`
 however the trace-event timestamps are expressed in microseconds,
 unlike `process.hrtime()` which returns nanoseconds.
+
+The features from this module are not available in [`Worker`][] threads.
 
 ## The `trace_events` module
 <!-- YAML
@@ -126,7 +133,7 @@ t2.enable();
 // Prints 'node,node.perf,v8'
 console.log(trace_events.getEnabledCategories());
 
-t2.disable(); // will only disable emission of the 'node.perf' category
+t2.disable(); // Will only disable emission of the 'node.perf' category
 
 // Prints 'node,v8'
 console.log(trace_events.getEnabledCategories());
@@ -199,4 +206,5 @@ console.log(trace_events.getEnabledCategories());
 
 [Performance API]: perf_hooks.html
 [V8]: v8.html
+[`Worker`]: worker_threads.html#worker_threads_class_worker
 [`async_hooks`]: async_hooks.html

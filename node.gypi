@@ -24,7 +24,21 @@
     },
     'force_load%': '<(force_load)',
   },
+  # Putting these explicitly here so not to be dependant on common.gypi.
+  'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
+  'xcode_settings': {
+    'WARNING_CFLAGS': [
+      '-Wall',
+      '-Wendif-labels',
+      '-W',
+      '-Wno-unused-parameter',
+      '-Werror=undefined-inline',
+    ],
+  },
   'conditions': [
+    [ 'clang==1', {
+      'cflags': [ '-Werror=undefined-inline', ]
+    }],
     [ 'node_shared=="false"', {
       'msvs_settings': {
         'VCManifestTool': {
@@ -51,10 +65,15 @@
         'NOMINMAX',
         '_UNICODE=1',
       ],
+      'msvs_precompiled_header': 'tools/msvs/pch/node_pch.h',
+      'msvs_precompiled_source': 'tools/msvs/pch/node_pch.cc',
+      'sources': [
+        '<(_msvs_precompiled_header)',
+        '<(_msvs_precompiled_source)',
+      ],
     }, { # POSIX
       'defines': [ '__POSIX__' ],
     }],
-
     [ 'node_enable_d8=="true"', {
       'dependencies': [ 'deps/v8/gypfiles/d8.gyp:d8' ],
     }],
@@ -112,21 +131,12 @@
     [ 'node_no_browser_globals=="true"', {
       'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
     } ],
-    [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true"', {
-      'conditions': [
-        # -force_load is not applicable for the static library
-        [ 'force_load=="true"', {
-          'xcode_settings': {
-            'OTHER_LDFLAGS': [
-              '-Wl,-force_load,<(v8_base)',
-            ],
-          },
-        }],
-        # when building with GN, the v8_monolith target already includes postmortem metadata
-        [ 'build_v8_with_gn=="false"', {
-          'dependencies': [ 'deps/v8/gypfiles/v8.gyp:postmortem-metadata' ],
-        }],
-      ],
+    [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true" and force_load=="true"', {
+      'xcode_settings': {
+        'OTHER_LDFLAGS': [
+          '-Wl,-force_load,<(v8_base)',
+        ],
+      },
     }],
     [ 'node_shared_zlib=="false"', {
       'dependencies': [ 'deps/zlib/zlib.gyp:zlib' ],
@@ -141,7 +151,7 @@
           'msvs_settings': {
             'VCLinkerTool': {
               'AdditionalOptions': [
-                '/WHOLEARCHIVE:<(PRODUCT_DIR)\\lib\\zlib<(STATIC_LIB_SUFFIX)',
+                '/WHOLEARCHIVE:zlib<(STATIC_LIB_SUFFIX)',
               ],
             },
           },
@@ -159,8 +169,11 @@
     }],
 
     [ 'node_shared_http_parser=="false"', {
-      'dependencies': [ 'deps/http_parser/http_parser.gyp:http_parser' ],
-    }],
+      'dependencies': [
+        'deps/http_parser/http_parser.gyp:http_parser',
+        'deps/llhttp/llhttp.gyp:llhttp'
+      ],
+    } ],
 
     [ 'node_shared_cares=="false"', {
       'dependencies': [ 'deps/cares/cares.gyp:cares' ],
@@ -179,7 +192,7 @@
           'msvs_settings': {
             'VCLinkerTool': {
               'AdditionalOptions': [
-                '/WHOLEARCHIVE:<(PRODUCT_DIR)\\lib\\libuv<(STATIC_LIB_SUFFIX)',
+                '/WHOLEARCHIVE:libuv<(STATIC_LIB_SUFFIX)',
               ],
             },
           },
@@ -198,6 +211,10 @@
 
     [ 'node_shared_nghttp2=="false"', {
       'dependencies': [ 'deps/nghttp2/nghttp2.gyp:nghttp2' ],
+    }],
+
+    [ 'node_shared_brotli=="false"', {
+      'dependencies': [ 'deps/brotli/brotli.gyp:brotli' ],
     }],
 
     [ 'OS=="mac"', {
@@ -221,6 +238,7 @@
     [ 'OS=="aix"', {
       'defines': [
         '_LINUX_SOURCE_COMPAT',
+        '__STDC_FORMAT_MACROS'
       ],
       'conditions': [
         [ 'force_load=="true"', {
@@ -264,25 +282,28 @@
                    '-Wl,--whole-archive <(v8_base)',
                    '-Wl,--no-whole-archive' ]
     }],
-    [ 'OS in "mac freebsd linux" and node_shared=="false"'
-        ' and coverage=="true"', {
+    [ 'coverage=="true" and node_shared=="false" and OS in "mac freebsd linux"', {
+      'cflags!': [ '-O3' ],
       'ldflags': [ '--coverage',
                    '-g',
                    '-O0' ],
       'cflags': [ '--coverage',
                    '-g',
                    '-O0' ],
-      'cflags!': [ '-O3' ],
       'xcode_settings': {
-        'OTHER_LDFLAGS': [
-          '--coverage',
-        ],
-        'OTHER_CFLAGS+': [
+        'OTHER_CFLAGS': [
           '--coverage',
           '-g',
           '-O0'
         ],
-      }
+      },
+      'conditions': [
+        [ '_type=="executable"', {
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [ '--coverage', ],
+          },
+        }],
+      ],
     }],
     [ 'OS=="sunos"', {
       'ldflags': [ '-Wl,-M,/usr/lib/ld/map.noexstk' ],
@@ -291,10 +312,16 @@
       'ldflags': [ '-Wl,-z,relro',
                    '-Wl,-z,now' ]
     }],
+    [ 'OS=="linux" and target_arch=="x64" and node_use_large_pages=="true"', {
+      'ldflags': [
+        '-Wl,-T',
+        '<!(realpath src/large_pages/ld.implicit.script)',
+      ]
+    }],
     [ 'node_use_openssl=="true"', {
       'defines': [ 'HAVE_OPENSSL=1' ],
       'conditions': [
-        ['openssl_fips != ""', {
+        ['openssl_fips != "" or openssl_is_fips=="true"', {
           'defines': [ 'NODE_FIPS_MODE' ],
         }],
         [ 'node_shared_openssl=="false"', {
@@ -316,7 +343,7 @@
               'msvs_settings': {
                 'VCLinkerTool': {
                   'AdditionalOptions': [
-                    '/WHOLEARCHIVE:<(PRODUCT_DIR)\\lib\\<(openssl_product)',
+                    '/WHOLEARCHIVE:<(openssl_product)',
                   ],
                 },
               },

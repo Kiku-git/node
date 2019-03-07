@@ -14,7 +14,7 @@ const util = require('util');
 const sleep = util.promisify(setTimeout);
 // either 'inited' or 'resolved'
 const promisesInitState = new Map();
-// either 'before' or 'after' AND asyncId must be present in the other map
+// Either 'before' or 'after' AND asyncId must be present in the other map
 const promisesExecutionState = new Map();
 
 const hooks = initHooks({
@@ -26,7 +26,7 @@ const hooks = initHooks({
 });
 hooks.enable();
 
-function oninit(asyncId, type, triggerAsyncId, resource) {
+function oninit(asyncId, type) {
   if (type === 'PROMISE') {
     promisesInitState.set(asyncId, 'inited');
   }
@@ -64,15 +64,15 @@ const timeout = common.platformTimeout(10);
 
 function checkPromisesInitState() {
   for (const initState of promisesInitState.values()) {
-    assert.strictEqual(initState, 'resolved',
-                       'promise initialized without being resolved');
+    // Promise should not be initialized without being resolved.
+    assert.strictEqual(initState, 'resolved');
   }
 }
 
 function checkPromisesExecutionState() {
   for (const executionState of promisesExecutionState.values()) {
-    assert.strictEqual(executionState, 'after',
-                       'mismatch between before and after hook calls');
+    // Check for mismatch between before and after hook calls.
+    assert.strictEqual(executionState, 'after');
   }
 }
 

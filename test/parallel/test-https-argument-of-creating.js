@@ -22,7 +22,7 @@ const dftProtocol = {};
 }
 
 
-// validate that `createServer` can work with the only argument requestListener
+// Validate that `createServer` can work with the only argument requestListener
 {
   const mustNotCall = common.mustNotCall();
   const server = https.createServer(mustNotCall);
@@ -35,7 +35,7 @@ const dftProtocol = {};
 }
 
 
-// validate that `createServer` can work with no arguments
+// Validate that `createServer` can work with no arguments
 {
   const server = https.createServer();
 

@@ -13,7 +13,6 @@ const assert = require('assert');
 const tmpDir = tmpdir.path;
 
 tmpdir.refresh();
-common.crashOnUnhandledRejection();
 
 async function validateFilePermission() {
   const filePath = path.resolve(tmpDir, 'tmp-chmod.txt');
@@ -26,10 +25,10 @@ async function validateFilePermission() {
   const newPermissions = 0o765;
 
   if (common.isWindows) {
-    // chmod in Windows will only toggle read only/write access. the
+    // Chmod in Windows will only toggle read only/write access. The
     // fs.Stats.mode in Windows is computed using read/write
-    // bits (not exec). read only at best returns 444; r/w 666.
-    // refer: /deps/uv/src/win/fs.cfs;
+    // bits (not exec). Read-only at best returns 444; r/w 666.
+    // Refer: /deps/uv/src/win/fs.cfs;
     expectedAccess = 0o664;
   } else {
     expectedAccess = newPermissions;

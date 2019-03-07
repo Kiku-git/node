@@ -4,14 +4,10 @@ const common = require('../common.js');
 const assert = require('assert');
 
 const bench = common.createBenchmark(main, {
-  n: [1e6],
-  size: [1e2, 1e3, 1e4],
-  method: [
-    'deepEqual',
-    'deepStrictEqual',
-    'notDeepEqual',
-    'notDeepStrictEqual'
-  ]
+  n: [5e3],
+  size: [1e2, 1e3, 5e4],
+  strict: [0, 1],
+  method: [ 'deepEqual', 'notDeepEqual' ],
 });
 
 function createObj(source, add = '') {
@@ -20,14 +16,16 @@ function createObj(source, add = '') {
     nope: {
       bar: `123${add}`,
       a: [1, 2, 3],
-      baz: n
-    }
+      baz: n,
+      c: {},
+      b: [],
+    },
   }));
 }
 
-function main({ size, n, method }) {
+function main({ size, n, method, strict }) {
   // TODO: Fix this "hack". `n` should not be manipulated.
-  n = n / size;
+  n = Math.min(Math.ceil(n / size), 20);
 
   if (!method)
     method = 'deepEqual';
@@ -37,6 +35,9 @@ function main({ size, n, method }) {
   const expected = createObj(source);
   const expectedWrong = createObj(source, '4');
 
+  if (strict) {
+    method = method.replace('eep', 'eepStrict');
+  }
   const fn = assert[method];
   const value2 = method.includes('not') ? expectedWrong : expected;
 

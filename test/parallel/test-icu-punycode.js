@@ -1,14 +1,25 @@
 'use strict';
+// Flags: --expose-internals
 const common = require('../common');
 
 if (!common.hasIntl)
   common.skip('missing Intl');
 
-const icu = process.binding('icu');
+const { internalBinding } = require('internal/test/binding');
+const icu = internalBinding('icu');
 const assert = require('assert');
 
+// test hasConverter method
+assert(icu.hasConverter('utf-8'),
+       'hasConverter should report coverter exists for utf-8');
+assert(!icu.hasConverter('x'),
+       'hasConverter should report coverter does not exist for x');
+
 const tests = require('../fixtures/url-idna.js');
-const wptToASCIITests = require('../fixtures/url-toascii.js');
+const fixtures = require('../common/fixtures');
+const wptToASCIITests = require(
+  fixtures.path('wpt', 'url', 'resources', 'toascii.json')
+);
 
 {
   for (const [i, { ascii, unicode }] of tests.entries()) {

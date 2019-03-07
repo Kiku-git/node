@@ -85,7 +85,7 @@ TEST(MIPS1) {
   Label L, C;
 
   __ mov(a1, a0);
-  __ li(v0, 0);
+  __ li(v0, 0l);
   __ b(&C);
   __ nop();
 
@@ -1363,7 +1363,7 @@ TEST(MIPS15) {
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
   HandleScope scope(isolate);
-  Assembler assm(isolate, nullptr, 0);
+  Assembler assm(AssemblerOptions{}, nullptr, 0);
 
   Label target;
   __ beq(v0, v1, &target);
@@ -2316,7 +2316,7 @@ TEST(movt_movd) {
         __ Lw(t1, MemOperand(a0, offsetof(TestFloat, fcsr)));
         __ cfc1(t0, FCSR);
         __ ctc1(t1, FCSR);
-        __ li(t2, 0x0);
+        __ li(t2, 0x0l);
         __ mtc1(t2, f12);
         __ mtc1(t2, f10);
         __ Sdc1(f10, MemOperand(a0, offsetof(TestFloat, dstdold)));
@@ -3293,15 +3293,13 @@ TEST(jump_tables1) {
   Label done;
   {
     __ BlockTrampolinePoolFor(kNumCases * 2 + 6);
-    PredictableCodeSizeScope predictable(
-        &assm, (kNumCases * 2 + 6) * Assembler::kInstrSize);
-    Label here;
+    PredictableCodeSizeScope predictable(&assm,
+                                         (kNumCases * 2 + 6) * kInstrSize);
 
-    __ bal(&here);
+    __ nal();
     __ dsll(at, a0, 3);  // In delay slot.
-    __ bind(&here);
     __ daddu(at, at, ra);
-    __ Ld(at, MemOperand(at, 4 * Assembler::kInstrSize));
+    __ Ld(at, MemOperand(at, 4 * kInstrSize));
     __ jr(at);
     __ nop();
     for (int i = 0; i < kNumCases; ++i) {
@@ -3373,15 +3371,13 @@ TEST(jump_tables2) {
   __ bind(&dispatch);
   {
     __ BlockTrampolinePoolFor(kNumCases * 2 + 6);
-    PredictableCodeSizeScope predictable(
-        &assm, (kNumCases * 2 + 6) * Assembler::kInstrSize);
-    Label here;
+    PredictableCodeSizeScope predictable(&assm,
+                                         (kNumCases * 2 + 6) * kInstrSize);
 
-    __ bal(&here);
+    __ nal();
     __ dsll(at, a0, 3);  // In delay slot.
-    __ bind(&here);
     __ daddu(at, at, ra);
-    __ Ld(at, MemOperand(at, 4 * Assembler::kInstrSize));
+    __ Ld(at, MemOperand(at, 4 * kInstrSize));
     __ jr(at);
     __ nop();
     for (int i = 0; i < kNumCases; ++i) {
@@ -3423,7 +3419,7 @@ TEST(jump_tables3) {
   Handle<Object> values[kNumCases];
   for (int i = 0; i < kNumCases; ++i) {
     double value = isolate->random_number_generator()->NextDouble();
-    values[i] = isolate->factory()->NewHeapNumber(value, IMMUTABLE, TENURED);
+    values[i] = isolate->factory()->NewHeapNumber(value, TENURED);
   }
   Label labels[kNumCases];
   Object* obj;
@@ -3453,15 +3449,13 @@ TEST(jump_tables3) {
   __ bind(&dispatch);
   {
     __ BlockTrampolinePoolFor(kNumCases * 2 + 6);
-    PredictableCodeSizeScope predictable(
-        &assm, (kNumCases * 2 + 6) * Assembler::kInstrSize);
-    Label here;
+    PredictableCodeSizeScope predictable(&assm,
+                                         (kNumCases * 2 + 6) * kInstrSize);
 
-    __ bal(&here);
+    __ nal();
     __ dsll(at, a0, 3);  // In delay slot.
-    __ bind(&here);
     __ daddu(at, at, ra);
-    __ Ld(at, MemOperand(at, 4 * Assembler::kInstrSize));
+    __ Ld(at, MemOperand(at, 4 * kInstrSize));
     __ jr(at);
     __ nop();
     for (int i = 0; i < kNumCases; ++i) {
@@ -5427,7 +5421,7 @@ uint64_t run_jic(int16_t offset) {
 
   Label get_program_counter, stop_execution;
   __ push(ra);
-  __ li(v0, 0);
+  __ li(v0, 0l);
   __ li(t1, 0x66);
 
   __ addiu(v0, v0, 0x1);        // <-- offset = -32
@@ -5437,8 +5431,8 @@ uint64_t run_jic(int16_t offset) {
   __ beq(v0, t1, &stop_execution);
   __ nop();
 
-  __ bal(&get_program_counter);  // t0 <- program counter
-  __ nop();
+  __ nal();  // t0 <- program counter
+  __ mov(t0, ra);
   __ jic(t0, offset);
 
   __ addiu(v0, v0, 0x100);
@@ -5446,11 +5440,6 @@ uint64_t run_jic(int16_t offset) {
   __ addiu(v0, v0, 0x1000);
   __ addiu(v0, v0, 0x2000);   // <--- offset = 16
   __ pop(ra);
-  __ jr(ra);
-  __ nop();
-
-  __ bind(&get_program_counter);
-  __ mov(t0, ra);
   __ jr(ra);
   __ nop();
 
@@ -5507,7 +5496,7 @@ uint64_t run_beqzc(int32_t value, int32_t offset) {
                       v8::internal::CodeObjectRequired::kYes);
 
   Label stop_execution;
-  __ li(v0, 0);
+  __ li(v0, 0l);
   __ li(t1, 0x66);
 
   __ addiu(v0, v0, 0x1);        // <-- offset = -8
@@ -5766,7 +5755,7 @@ uint64_t run_jialc(int16_t offset) {
 
   Label main_block, get_program_counter;
   __ push(ra);
-  __ li(v0, 0);
+  __ li(v0, 0l);
   __ beq(v0, v0, &main_block);
   __ nop();
 
@@ -5784,8 +5773,8 @@ uint64_t run_jialc(int16_t offset) {
 
   // Block 3 (Main)
   __ bind(&main_block);
-  __ bal(&get_program_counter);  // t0 <- program counter
-  __ nop();
+  __ nal();  // t0 <- program counter
+  __ mov(t0, ra);
   __ jialc(t0, offset);
   __ addiu(v0, v0, 0x4);
   __ pop(ra);
@@ -5801,11 +5790,6 @@ uint64_t run_jialc(int16_t offset) {
   // Block 5
   __ addiu(v0, v0, 0x1000);     // <--- offset = 36
   __ addiu(v0, v0, 0x2000);
-  __ jr(ra);
-  __ nop();
-
-  __ bind(&get_program_counter);
-  __ mov(t0, ra);
   __ jr(ra);
   __ nop();
 
@@ -5996,8 +5980,8 @@ int64_t run_bc(int32_t offset) {
 
   Label continue_1, stop_execution;
   __ push(ra);
-  __ li(v0, 0);
-  __ li(t8, 0);
+  __ li(v0, 0l);
+  __ li(t8, 0l);
   __ li(t9, 2);   // Condition for the stopping execution.
 
   for (int32_t i = -100; i <= -11; ++i) {
@@ -6076,8 +6060,8 @@ int64_t run_balc(int32_t offset) {
 
   Label continue_1, stop_execution;
   __ push(ra);
-  __ li(v0, 0);
-  __ li(t8, 0);
+  __ li(v0, 0l);
+  __ li(t8, 0l);
   __ li(t9, 2);   // Condition for stopping execution.
 
   __ beq(t8, t8, &continue_1);
@@ -6263,7 +6247,7 @@ TEST(Trampoline) {
   MacroAssembler assm(isolate, nullptr, 0,
                       v8::internal::CodeObjectRequired::kYes);
   Label done;
-  size_t nr_calls = kMaxBranchOffset / (2 * Instruction::kInstrSize) + 2;
+  size_t nr_calls = kMaxBranchOffset / (2 * kInstrSize) + 2;
 
   for (size_t i = 0; i < nr_calls; ++i) {
     __ BranchShort(&done, eq, a0, Operand(a1));
@@ -7088,7 +7072,7 @@ void run_msa_ctc_cfc(uint64_t value) {
 
   MSAControlRegister msareg = {kMSACSRRegister};
   __ li(t0, value);
-  __ li(t2, 0);
+  __ li(t2, 0l);
   __ cfcmsa(t1, msareg);
   __ ctcmsa(msareg, t0);
   __ cfcmsa(t2, msareg);

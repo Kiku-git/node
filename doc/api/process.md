@@ -97,6 +97,59 @@ the child process.
 The message goes through serialization and parsing. The resulting message might
 not be the same as what is originally sent.
 
+### Event: 'multipleResolves'
+<!-- YAML
+added: v10.12.0
+-->
+
+* `type` {string} The error type. One of `'resolve'` or `'reject'`.
+* `promise` {Promise} The promise that resolved or rejected more than once.
+* `value` {any} The value with which the promise was either resolved or
+  rejected after the original resolve.
+
+The `'multipleResolves'` event is emitted whenever a `Promise` has been either:
+
+* Resolved more than once.
+* Rejected more than once.
+* Rejected after resolve.
+* Resolved after reject.
+
+This is useful for tracking errors in an application while using the promise
+constructor. Otherwise such mistakes are silently swallowed due to being in a
+dead zone.
+
+It is recommended to end the process on such errors, since the process could be
+in an undefined state. While using the promise constructor make sure that it is
+guaranteed to trigger the `resolve()` or `reject()` functions exactly once per
+call and never call both functions in the same call.
+
+```js
+process.on('multipleResolves', (type, promise, reason) => {
+  console.error(type, promise, reason);
+  setImmediate(() => process.exit(1));
+});
+
+async function main() {
+  try {
+    return await new Promise((resolve, reject) => {
+      resolve('First call');
+      resolve('Swallowed resolve');
+      reject(new Error('Swallowed reject'));
+    });
+  } catch {
+    throw new Error('Failed');
+  }
+}
+
+main().then(console.log);
+// resolve: Promise { 'First call' } 'Swallowed resolve'
+// reject: Promise { 'First call' } Error: Swallowed reject
+//     at Promise (*)
+//     at new Promise (<anonymous>)
+//     at main (*)
+// First call
+```
+
 ### Event: 'rejectionHandled'
 <!-- YAML
 added: v1.4.1
@@ -151,9 +204,13 @@ added: v0.1.18
 
 The `'uncaughtException'` event is emitted when an uncaught JavaScript
 exception bubbles all the way back to the event loop. By default, Node.js
-handles such exceptions by printing the stack trace to `stderr` and exiting.
+handles such exceptions by printing the stack trace to `stderr` and exiting
+with code 1, overriding any previously set [`process.exitCode`][].
 Adding a handler for the `'uncaughtException'` event overrides this default
-behavior.
+behavior. Alternatively, change the [`process.exitCode`][] in the
+`'uncaughtException'` handler which will result in the process exiting with the
+provided exit code. Otherwise, in the presence of such handler the process will
+exit with 0.
 
 The listener function is called with the `Error` object passed as the only
 argument.
@@ -205,7 +262,7 @@ added: v1.4.1
 changes:
   - version: v7.0.0
     pr-url: https://github.com/nodejs/node/pull/8217
-    description: Not handling `Promise` rejections has been deprecated.
+    description: Not handling `Promise` rejections is deprecated.
   - version: v6.6.0
     pr-url: https://github.com/nodejs/node/pull/8223
     description: Unhandled `Promise` rejections will now emit
@@ -229,7 +286,7 @@ The listener function is called with the following arguments:
 ```js
 process.on('unhandledRejection', (reason, p) => {
   console.log('Unhandled Rejection at:', p, 'reason:', reason);
-  // application specific logging, throwing an error, or other logic here
+  // Application specific logging, throwing an error, or other logic here
 });
 
 somePromise.then((res) => {
@@ -372,7 +429,7 @@ process.on('SIGTERM', handle);
   removed (Node.js will no longer exit).
 * `'SIGPIPE'` is ignored by default. It can have a listener installed.
 * `'SIGHUP'` is generated on Windows when the console window is closed, and on
-  other platforms under various similar conditions, see signal(7). It can have a
+  other platforms under various similar conditions. See signal(7). It can have a
   listener installed, however Node.js will be unconditionally terminated by
   Windows about 10 seconds later. On non-Windows platforms, the default
   behavior of `SIGHUP` is to terminate Node.js, but once a listener has been
@@ -410,6 +467,57 @@ added: v0.7.0
 The `process.abort()` method causes the Node.js process to exit immediately and
 generate a core file.
 
+This feature is not available in [`Worker`][] threads.
+
+## process.allowedNodeEnvironmentFlags
+<!-- YAML
+added: v10.10.0
+-->
+
+* {Set}
+
+The `process.allowedNodeEnvironmentFlags` property is a special,
+read-only `Set` of flags allowable within the [`NODE_OPTIONS`][]
+environment variable.
+
+`process.allowedNodeEnvironmentFlags` extends `Set`, but overrides
+`Set.prototype.has` to recognize several different possible flag
+representations.  `process.allowedNodeEnvironmentFlags.has()` will
+return `true` in the following cases:
+
+- Flags may omit leading single (`-`) or double (`--`) dashes; e.g.,
+  `inspect-brk` for `--inspect-brk`, or `r` for `-r`.
+- Flags passed through to V8 (as listed in `--v8-options`) may replace
+  one or more *non-leading* dashes for an underscore, or vice-versa;
+  e.g., `--perf_basic_prof`, `--perf-basic-prof`, `--perf_basic-prof`,
+  etc.
+- Flags may contain one or more equals (`=`) characters; all
+  characters after and including the first equals will be ignored;
+  e.g., `--stack-trace-limit=100`.
+- Flags *must* be allowable within [`NODE_OPTIONS`][].
+
+When iterating over `process.allowedNodeEnvironmentFlags`, flags will
+appear only *once*; each will begin with one or more dashes. Flags
+passed through to V8 will contain underscores instead of non-leading
+dashes:
+
+```js
+process.allowedNodeEnvironmentFlags.forEach((flag) => {
+  // -r
+  // --inspect-brk
+  // --abort_on_uncaught_exception
+  // ...
+});
+```
+
+The methods `add()`, `clear()`, and `delete()` of
+`process.allowedNodeEnvironmentFlags` do nothing, and will fail
+silently.
+
+If Node.js was compiled *without* [`NODE_OPTIONS`][] support (shown in
+[`process.config`][]), `process.allowedNodeEnvironmentFlags` will
+contain what *would have* been allowable.
+
 ## process.arch
 <!-- YAML
 added: v0.5.0
@@ -420,8 +528,8 @@ added: v0.5.0
 The `process.arch` property returns a string identifying the operating system
 CPU architecture for which the Node.js binary was compiled.
 
-The current possible values are: `'arm'`, `'arm64'`, `'ia32'`, `'mips'`,
-`'mipsel'`, `'ppc'`, `'ppc64'`, `'s390'`, `'s390x'`, `'x32'`, and `'x64'`.
+The current possible values are: `'arm'`, `'arm64'`, `'ia32'`,
+`'ppc'`, `'ppc64'`, `'s390'`, `'s390x'`, `'x32'`, and `'x64'`.
 
 ```js
 console.log(`This processor architecture is ${process.arch}`);
@@ -516,6 +624,8 @@ try {
   console.error(`chdir: ${err}`);
 }
 ```
+
+This feature is not available in [`Worker`][] threads.
 
 ## process.config
 <!-- YAML
@@ -886,8 +996,6 @@ Assigning a property on `process.env` will implicitly convert the value
 to a string. **This behavior is deprecated.** Future versions of Node.js may
 throw an error when the value is not a string, number, or boolean.
 
-Example:
-
 ```js
 process.env.test = null;
 console.log(process.env.test);
@@ -899,8 +1007,6 @@ console.log(process.env.test);
 
 Use `delete` to delete a property from `process.env`.
 
-Example:
-
 ```js
 process.env.TEST = 1;
 delete process.env.TEST;
@@ -910,13 +1016,13 @@ console.log(process.env.TEST);
 
 On Windows operating systems, environment variables are case-insensitive.
 
-Example:
-
 ```js
 process.env.TEST = 1;
 console.log(process.env.test);
 // => 1
 ```
+
+`process.env` is read-only in [`Worker`][] threads.
 
 ## process.execArgv
 <!-- YAML
@@ -1029,6 +1135,9 @@ if (someConditionNotMet()) {
 If it is necessary to terminate the Node.js process due to an error condition,
 throwing an *uncaught* error and allowing the process to terminate accordingly
 is safer than calling `process.exit()`.
+
+In [`Worker`][] threads, this function stops the current thread rather
+than the current process.
 
 ## process.exitCode
 <!-- YAML
@@ -1150,6 +1259,9 @@ added: v0.7.6
 * `time` {integer[]} The result of a previous call to `process.hrtime()`
 * Returns: {integer[]}
 
+This is the legacy version of [`process.hrtime.bigint()`][]
+before `bigint` was introduced in JavaScript.
+
 The `process.hrtime()` method returns the current high-resolution real time
 in a `[seconds, nanoseconds]` tuple `Array`, where `nanoseconds` is the
 remaining part of the real time that can't be represented in second precision.
@@ -1178,6 +1290,33 @@ setTimeout(() => {
 }, 1000);
 ```
 
+## process.hrtime.bigint()
+<!-- YAML
+added: v10.7.0
+-->
+
+* Returns: {bigint}
+
+The `bigint` version of the [`process.hrtime()`][] method returning the
+current high-resolution real time in a `bigint`.
+
+Unlike [`process.hrtime()`][], it does not support an additional `time`
+argument since the difference can just be computed directly
+by subtraction of the two `bigint`s.
+
+```js
+const start = process.hrtime.bigint();
+// 191051479007711n
+
+setTimeout(() => {
+  const end = process.hrtime.bigint();
+  // 191052633396993n
+
+  console.log(`Benchmark took ${end - start} nanoseconds`);
+  // Benchmark took 1154389282 nanoseconds
+}, 1000);
+```
+
 ## process.initgroups(user, extraGroup)
 <!-- YAML
 added: v0.9.4
@@ -1191,7 +1330,7 @@ the group access list, using all groups of which the user is a member. This is
 a privileged operation that requires that the Node.js process either have `root`
 access or the `CAP_SETGID` capability.
 
-Note that care must be taken when dropping privileges. Example:
+Note that care must be taken when dropping privileges:
 
 ```js
 console.log(process.getgroups());         // [ 0 ]
@@ -1203,6 +1342,7 @@ console.log(process.getgroups());         // [ 27, 30, 46, 1000 ]
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.kill(pid[, signal])
 <!-- YAML
@@ -1242,7 +1382,7 @@ process.kill(process.pid, 'SIGHUP');
 ```
 
 When `SIGUSR1` is received by a Node.js process, Node.js will start the
-debugger, see [Signal Events][].
+debugger. See [Signal Events][].
 
 ## process.mainModule
 <!-- YAML
@@ -1306,6 +1446,9 @@ The _heap_ is where objects, strings, and closures are stored. Variables are
 stored in the _stack_ and the actual JavaScript code resides in the
 _code segment_.
 
+When using [`Worker`][] threads, `rss` will be a value that is valid for the
+entire process, while the other fields will only refer to the current thread.
+
 ## process.nextTick(callback[, ...args])
 <!-- YAML
 added: v0.1.26
@@ -1318,13 +1461,11 @@ changes:
 * `callback` {Function}
 * `...args` {any} Additional arguments to pass when invoking the `callback`
 
-The `process.nextTick()` method adds the `callback` to the "next tick queue".
-Once the current turn of the event loop turn runs to completion, all callbacks
-currently in the next tick queue will be called.
-
-This is *not* a simple alias to [`setTimeout(fn, 0)`][]. It is much more
-efficient. It runs before any additional I/O events (including
-timers) fire in subsequent ticks of the event loop.
+`process.nextTick()` adds `callback` to the "next tick queue". This queue is
+fully drained after the current operation on the JavaScript stack runs to
+completion and before the event loop is allowed to continue. It's possible to
+create an infinite loop if one were to recursively call `process.nextTick()`.
+See the [Event Loop] guide for more background.
 
 ```js
 console.log('start');
@@ -1398,11 +1539,6 @@ function definitelyAsync(arg, cb) {
   fs.stat('file', cb);
 }
 ```
-
-The next tick queue is completely drained on each pass of the event loop
-**before** additional I/O is processed. As a result, recursively setting
-`nextTick()` callbacks will block any I/O from happening, just like a
-`while(true);` loop.
 
 ## process.noDeprecation
 <!-- YAML
@@ -1522,6 +1658,143 @@ In custom builds from non-release versions of the source tree, only the
 `name` property may be present. The additional properties should not be
 relied upon to exist.
 
+## process.report
+<!-- YAML
+added: v11.8.0
+-->
+
+* {Object}
+
+`process.report` is an object whose methods are used to generate diagnostic
+reports for the current process. Additional documentation is available in the
+[report documentation][].
+
+### process.report.directory
+<!-- YAML
+added: REPLACEME
+-->
+
+* {string}
+
+Directory where the report is written. The default value is the empty string,
+indicating that reports are written to the current working directory of the
+Node.js process.
+
+```js
+console.log(`Report directory is ${process.report.directory}`);
+```
+
+### process.report.filename
+<!-- YAML
+added: REPLACEME
+-->
+
+* {string}
+
+Filename where the report is written. If set to the empty string, the output
+filename will be comprised of a timestamp, PID, and sequence number. The default
+value is the empty string.
+
+```js
+console.log(`Report filename is ${process.report.filename}`);
+```
+
+### process.report.getReport([err])
+<!-- YAML
+added: v11.8.0
+-->
+
+* `err` {Error} A custom error used for reporting the JavaScript stack.
+* Returns: {string}
+
+Returns a JSON-formatted diagnostic report for the running process. The report's
+JavaScript stack trace is taken from `err`, if present.
+
+```js
+const data = process.report.getReport();
+console.log(data);
+```
+
+Additional documentation is available in the [report documentation][].
+
+### process.report.reportOnFatalError
+<!-- YAML
+added: REPLACEME
+-->
+
+* {boolean}
+
+If `true`, a diagnostic report is generated on fatal errors, such as out of
+memory errors or failed C++ assertions.
+
+```js
+console.log(`Report on fatal error: ${process.report.reportOnFatalError}`);
+```
+
+### process.report.reportOnSignal
+<!-- YAML
+added: REPLACEME
+-->
+
+* {boolean}
+
+If `true`, a diagnostic report is generated when the process receives the
+signal specified by `process.report.signal`.
+
+```js
+console.log(`Report on signal: ${process.report.reportOnSignal}`);
+```
+
+### process.report.reportOnUncaughtException
+<!-- YAML
+added: REPLACEME
+-->
+
+* {boolean}
+
+If `true`, a diagnostic report is generated on uncaught exception.
+
+```js
+console.log(`Report on exception: ${process.report.reportOnUncaughtException}`);
+```
+
+### process.report.signal
+<!-- YAML
+added: REPLACEME
+-->
+
+* {string}
+
+The signal used to trigger the creation of a diagnostic report. Defaults to
+`'SIGUSR2'`.
+
+```js
+console.log(`Report signal: ${process.report.signal}`);
+```
+
+### process.report.triggerReport([filename][, err])
+<!-- YAML
+added: v11.8.0
+-->
+
+* `filename` {string} Name of the file where the report is written. This
+  should be a relative path, that will be appended to the directory specified in
+  `process.report.directory`, or the current working directory of the Node.js
+  process, if unspecified.
+* `err` {Error} A custom error used for reporting the JavaScript stack.
+
+* Returns: {string} Returns the filename of the generated report.
+
+Writes a diagnostic report to a file. If `filename` is not provided, the default
+filename includes the date, time, PID, and a sequence number. The report's
+JavaScript stack trace is taken from `err`, if present.
+
+```js
+process.report.triggerReport();
+```
+
+Additional documentation is available in the [report documentation][].
+
 ## process.send(message[, sendHandle[, options]][, callback])
 <!-- YAML
 added: v0.5.9
@@ -1569,6 +1842,7 @@ if (process.getegid && process.setegid) {
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.seteuid(id)
 <!-- YAML
@@ -1596,6 +1870,7 @@ if (process.geteuid && process.seteuid) {
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.setgid(id)
 <!-- YAML
@@ -1623,6 +1898,7 @@ if (process.getgid && process.setgid) {
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.setgroups(groups)
 <!-- YAML
@@ -1639,11 +1915,13 @@ The `groups` array can contain numeric group IDs, group names or both.
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.setuid(id)
 <!-- YAML
 added: v0.1.28
 -->
+* `id` {integer | string}
 
 The `process.setuid(id)` method sets the user identity of the process. (See
 setuid(2).) The `id` can be passed as either a numeric ID or a username string.
@@ -1664,6 +1942,7 @@ if (process.getuid && process.setuid) {
 
 This function is only available on POSIX platforms (i.e. not Windows or
 Android).
+This feature is not available in [`Worker`][] threads.
 
 ## process.setUncaughtExceptionCaptureCallback(fn)
 <!-- YAML
@@ -1672,18 +1951,19 @@ added: v9.3.0
 
 * `fn` {Function|null}
 
-The `process.setUncaughtExceptionCapture` function sets a function that will
-be invoked when an uncaught exception occurs, which will receive the exception
-value itself as its first argument.
+The `process.setUncaughtExceptionCaptureCallback()` function sets a function
+that will be invoked when an uncaught exception occurs, which will receive the
+exception value itself as its first argument.
 
 If such a function is set, the [`'uncaughtException'`][] event will
 not be emitted. If `--abort-on-uncaught-exception` was passed from the
 command line or set through [`v8.setFlagsFromString()`][], the process will
 not abort.
 
-To unset the capture function, `process.setUncaughtExceptionCapture(null)`
-may be used. Calling this method with a non-`null` argument while another
-capture function is set will throw an error.
+To unset the capture function,
+`process.setUncaughtExceptionCaptureCallback(null)` may be used. Calling this
+method with a non-`null` argument while another capture function is set will
+throw an error.
 
 Using this function is mutually exclusive with using the deprecated
 [`domain`][] built-in module.
@@ -1697,7 +1977,7 @@ The `process.stderr` property returns a stream connected to
 stream) unless fd `2` refers to a file, in which case it is
 a [Writable][] stream.
 
-`process.stderr` differs from other Node.js streams in important ways, see
+`process.stderr` differs from other Node.js streams in important ways. See
 [note on process I/O][] for more information.
 
 ## process.stdin
@@ -1713,8 +1993,9 @@ a [Readable][] stream.
 process.stdin.setEncoding('utf8');
 
 process.stdin.on('readable', () => {
-  const chunk = process.stdin.read();
-  if (chunk !== null) {
+  let chunk;
+  // Use a loop to make sure we read all available data.
+  while ((chunk = process.stdin.read()) !== null) {
     process.stdout.write(`data: ${chunk}`);
   }
 });
@@ -1747,7 +2028,7 @@ For example, to copy `process.stdin` to `process.stdout`:
 process.stdin.pipe(process.stdout);
 ```
 
-`process.stdout` differs from other Node.js streams in important ways, see
+`process.stdout` differs from other Node.js streams in important ways. See
 [note on process I/O][] for more information.
 
 ### A note on process I/O
@@ -1757,9 +2038,7 @@ important ways:
 
 1. They are used internally by [`console.log()`][] and [`console.error()`][],
    respectively.
-2. They cannot be closed ([`end()`][] will throw).
-3. They will never emit the [`'finish'`][] event.
-4. Writes may be synchronous depending on what the stream is connected to
+2. Writes may be synchronous depending on what the stream is connected to
    and whether the system is Windows or POSIX:
    - Files: *synchronous* on Windows and POSIX
    - TTYs (Terminals): *asynchronous* on Windows, *synchronous* on POSIX
@@ -1864,6 +2143,9 @@ console.log(
   `Changed umask from ${oldmask.toString(8)} to ${newmask.toString(8)}`
 );
 ```
+
+[`Worker`][] threads are able to read the umask, however attempting to set the
+umask will result in a thrown exception.
 
 ## process.uptime()
 <!-- YAML
@@ -1982,46 +2264,50 @@ cases:
   code will be `128` + `6`, or `134`.
 
 [`'exit'`]: #process_event_exit
-[`'finish'`]: stream.html#stream_event_finish
 [`'message'`]: child_process.html#child_process_event_message
 [`'rejectionHandled'`]: #process_event_rejectionhandled
 [`'uncaughtException'`]: #process_event_uncaughtexception
 [`ChildProcess.disconnect()`]: child_process.html#child_process_subprocess_disconnect
-[`subprocess.kill()`]: child_process.html#child_process_subprocess_kill_signal
 [`ChildProcess.send()`]: child_process.html#child_process_subprocess_send_message_sendhandle_options_callback
 [`ChildProcess`]: child_process.html#child_process_class_childprocess
 [`Error`]: errors.html#errors_class_error
 [`EventEmitter`]: events.html#events_class_eventemitter
+[`NODE_OPTIONS`]: cli.html#cli_node_options_options
+[`Worker`]: worker_threads.html#worker_threads_class_worker
 [`console.error()`]: console.html#console_console_error_data_args
 [`console.log()`]: console.html#console_console_log_data_args
 [`domain`]: domain.html
-[`end()`]: stream.html#stream_writable_end_chunk_encoding_callback
 [`net.Server`]: net.html#net_class_net_server
 [`net.Socket`]: net.html#net_class_net_socket
 [`os.constants.dlopen`]: os.html#os_dlopen_constants
 [`process.argv`]: #process_process_argv
+[`process.config`]: #process_process_config
 [`process.execPath`]: #process_process_execpath
 [`process.exit()`]: #process_process_exit_code
 [`process.exitCode`]: #process_process_exitcode
+[`process.hrtime()`]: #process_process_hrtime_time
+[`process.hrtime.bigint()`]: #process_process_hrtime_bigint
 [`process.kill()`]: #process_process_kill_pid_signal
 [`process.setUncaughtExceptionCaptureCallback()`]: process.html#process_process_setuncaughtexceptioncapturecallback_fn
 [`promise.catch()`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/catch
 [`require()`]: globals.html#globals_require
 [`require.main`]: modules.html#modules_accessing_the_main_module
 [`require.resolve()`]: modules.html#modules_require_resolve_request_options
-[`setTimeout(fn, 0)`]: timers.html#timers_settimeout_callback_delay_args
+[`subprocess.kill()`]: child_process.html#child_process_subprocess_kill_signal
 [`v8.setFlagsFromString()`]: v8.html#v8_v8_setflagsfromstring_flags
 [Android building]: https://github.com/nodejs/node/blob/master/BUILDING.md#androidandroid-based-devices-eg-firefox-os
 [Child Process]: child_process.html
 [Cluster]: cluster.html
-[debugger]: debugger.html
 [Duplex]: stream.html#stream_duplex_and_transform_streams
-[LTS]: https://github.com/nodejs/LTS/
-[note on process I/O]: process.html#process_a_note_on_process_i_o
-[process_emit_warning]: #process_process_emitwarning_warning_type_code_ctor
-[process_warning]: #process_event_warning
+[Event Loop]: https://nodejs.org/en/docs/guides/event-loop-timers-and-nexttick/#process-nexttick
+[LTS]: https://github.com/nodejs/Release
 [Readable]: stream.html#stream_readable_streams
 [Signal Events]: #process_signal_events
 [Stream compatibility]: stream.html#stream_compatibility_with_older_node_js_versions
 [TTY]: tty.html#tty_tty
 [Writable]: stream.html#stream_writable_streams
+[debugger]: debugger.html
+[note on process I/O]: process.html#process_a_note_on_process_i_o
+[process_emit_warning]: #process_process_emitwarning_warning_type_code_ctor
+[process_warning]: #process_event_warning
+[report documentation]: report.html

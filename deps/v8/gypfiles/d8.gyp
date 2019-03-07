@@ -23,13 +23,16 @@
       'include_dirs+': [
         '..',
         '<(DEPTH)',
+        '<(SHARED_INTERMEDIATE_DIR)',
       ],
       'sources': [
-        '../src/d8.h',
-        '../src/d8.cc',
-        '../src/d8-console.h',
-        '../src/d8-console.cc',
         '<(SHARED_INTERMEDIATE_DIR)/d8-js.cc',
+        '../src/async-hooks-wrapper.cc',
+        '../src/async-hooks-wrapper.h',
+        '../src/d8-console.cc',
+        '../src/d8-console.h',
+        '../src/d8.cc',
+        '../src/d8.h',
       ],
       'conditions': [
         [ 'want_separate_host_toolset==1', {

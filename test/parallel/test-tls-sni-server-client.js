@@ -24,9 +24,6 @@ const common = require('../common');
 if (!common.hasCrypto)
   common.skip('missing crypto');
 
-if (!process.features.tls_sni)
-  common.skip('node compiled without OpenSSL or with old OpenSSL version.');
-
 const assert = require('assert');
 const tls = require('tls');
 const fixtures = require('../common/fixtures');
@@ -89,6 +86,7 @@ const clientResults = [];
 
 const server = tls.createServer(serverOptions, function(c) {
   serverResults.push(c.servername);
+  c.end();
 });
 
 server.addContext('a.example.com', SNIContexts['a.example.com']);
@@ -110,7 +108,6 @@ function startTest() {
       clientResults.push(
         client.authorizationError &&
         (client.authorizationError === 'ERR_TLS_CERT_ALTNAME_INVALID'));
-      client.destroy();
 
       // Continue
       start();

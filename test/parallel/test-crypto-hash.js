@@ -81,7 +81,7 @@ assert.deepStrictEqual(
   `${cryptoType} with ${digest} digest failed to evaluate to expected hash`
 );
 
-// stream interface should produce the same result.
+// Stream interface should produce the same result.
 assert.deepStrictEqual(a5, a3);
 assert.deepStrictEqual(a6, a3);
 assert.notStrictEqual(a7, undefined);
@@ -100,9 +100,9 @@ fileStream.on('data', function(data) {
   sha1Hash.update(data);
 });
 fileStream.on('close', common.mustCall(function() {
+  // Test SHA1 of sample.png
   assert.strictEqual(sha1Hash.digest('hex'),
-                     '22723e553129a336ad96e10f6aecdf0f45e4149e',
-                     'Test SHA1 of sample.png');
+                     '22723e553129a336ad96e10f6aecdf0f45e4149e');
 }));
 
 // Issue https://github.com/nodejs/node-v0.x-archive/issues/2227: unknown digest
@@ -110,6 +110,28 @@ fileStream.on('close', common.mustCall(function() {
 assert.throws(function() {
   crypto.createHash('xyzzy');
 }, /Digest method not supported/);
+
+// Issue https://github.com/nodejs/node/issues/9819: throwing encoding used to
+// segfault.
+common.expectsError(
+  () => crypto.createHash('sha256').digest({
+    toString: () => { throw new Error('boom'); },
+  }),
+  {
+    type: Error,
+    message: 'boom'
+  });
+
+// Issue https://github.com/nodejs/node/issues/25487: error message for invalid
+// arg type to update method should include all possible types
+common.expectsError(
+  () => crypto.createHash('sha256').update(),
+  {
+    code: 'ERR_INVALID_ARG_TYPE',
+    type: TypeError,
+    message: 'The "data" argument must be one of type string, Buffer, ' +
+      'TypedArray, or DataView. Received type undefined'
+  });
 
 // Default UTF-8 encoding
 const hutf8 = crypto.createHash('sha512').update('УТФ-8 text').digest('hex');

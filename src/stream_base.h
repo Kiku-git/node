@@ -74,24 +74,17 @@ class ShutdownWrap : public StreamReq {
 
 class WriteWrap : public StreamReq {
  public:
-  char* Storage();
-  size_t StorageSize() const;
-  void SetAllocatedStorage(char* data, size_t size);
+  void SetAllocatedStorage(AllocatedBuffer&& storage);
 
   WriteWrap(StreamBase* stream,
             v8::Local<v8::Object> req_wrap_obj)
     : StreamReq(stream, req_wrap_obj) { }
 
-  ~WriteWrap() {
-    free(storage_);
-  }
-
   // Call stream()->EmitAfterWrite() and dispose of this request wrap.
   void OnDone(int status) override;
 
  private:
-  char* storage_ = nullptr;
-  size_t storage_size_ = 0;
+  AllocatedBuffer storage_;
 };
 
 
@@ -115,7 +108,7 @@ class StreamListener {
   // It is not valid to return a zero-length buffer from this method.
   // It is not guaranteed that the corresponding `OnStreamRead()` call
   // happens in the same event loop turn as this call.
-  virtual uv_buf_t OnStreamAlloc(size_t suggested_size);
+  virtual uv_buf_t OnStreamAlloc(size_t suggested_size) = 0;
 
   // `OnStreamRead()` is called when data is available on the socket and has
   // been read into the buffer provided by `OnStreamAlloc()`.
@@ -181,6 +174,7 @@ class ReportWritesToJSStreamListener : public StreamListener {
 // JS land via the handle’s .ondata method.
 class EmitToJSStreamListener : public ReportWritesToJSStreamListener {
  public:
+  uv_buf_t OnStreamAlloc(size_t suggested_size) override;
   void OnStreamRead(ssize_t nread, const uv_buf_t& buf) override;
 };
 
@@ -205,12 +199,22 @@ class StreamResource {
   // All of these methods may return an error code synchronously.
   // In that case, the finish callback should *not* be called.
 
-  // Perform a shutdown operation, and call req_wrap->Done() when finished.
+  // Perform a shutdown operation, and either call req_wrap->Done() when
+  // finished and return 0, return 1 for synchronous success, or
+  // a libuv error code for synchronous failures.
   virtual int DoShutdown(ShutdownWrap* req_wrap) = 0;
   // Try to write as much data as possible synchronously, and modify
   // `*bufs` and `*count` accordingly. This is a no-op by default.
+  // Return 0 for success and a libuv error code for failures.
   virtual int DoTryWrite(uv_buf_t** bufs, size_t* count);
-  // Perform a write of data, and call req_wrap->Done() when finished.
+  // Initiate a write of data. If the write completes synchronously, return 0 on
+  // success (with bufs modified to indicate how much data was consumed) or a
+  // libuv error code on failure. If the write will complete asynchronously,
+  // return 0. When the write completes asynchronously, call req_wrap->Done()
+  // with 0 on success (with bufs modified to indicate how much data was
+  // consumed) or a libuv error code on failure. Do not call req_wrap->Done() if
+  // the write completes synchronously, that is, it should never be called
+  // before DoWrite() has returned.
   virtual int DoWrite(WriteWrap* w,
                       uv_buf_t* bufs,
                       size_t count,
@@ -255,22 +259,18 @@ class StreamResource {
 
 class StreamBase : public StreamResource {
  public:
-  enum Flags {
-    kFlagNone = 0x0,
-    kFlagHasWritev = 0x1
-  };
-
   template <class Base>
   static inline void AddMethods(Environment* env,
-                                v8::Local<v8::FunctionTemplate> target,
-                                int flags = kFlagNone);
+                                v8::Local<v8::FunctionTemplate> target);
 
   virtual bool IsAlive() = 0;
   virtual bool IsClosing() = 0;
   virtual bool IsIPCPipe();
   virtual int GetFD();
 
-  void CallJSOnreadMethod(ssize_t nread, v8::Local<v8::Object> buf);
+  void CallJSOnreadMethod(ssize_t nread,
+                          v8::Local<v8::ArrayBuffer> ab,
+                          size_t offset = 0);
 
   // This is named `stream_env` to avoid name clashes, because a lot of
   // subclasses are also `BaseObject`s.
@@ -278,6 +278,8 @@ class StreamBase : public StreamResource {
 
   // Shut down the current stream. This request can use an existing
   // ShutdownWrap object (that was created in JS), or a new one will be created.
+  // Returns 1 in case of a synchronous completion, 0 in case of asynchronous
+  // completion, and a libuv error case in case of synchronous failure.
   int Shutdown(v8::Local<v8::Object> req_wrap_obj = v8::Local<v8::Object>());
 
   // Write data to the current stream. This request can use an existing
@@ -332,12 +334,24 @@ class StreamBase : public StreamResource {
       const v8::FunctionCallbackInfo<v8::Value>& args)>
   static void JSMethod(const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  // Internal, used only in StreamBase methods + env.cc.
+  enum StreamBaseStateFields {
+    kReadBytesOrError,
+    kArrayBufferOffset,
+    kBytesWritten,
+    kLastWriteWasAsync,
+    kNumStreamBaseStateFields
+  };
+
  private:
   Environment* env_;
   EmitToJSStreamListener default_listener_;
 
+  void SetWriteResult(const StreamWriteResult& res);
+
   friend class WriteWrap;
   friend class ShutdownWrap;
+  friend class Environment;  // For kNumStreamBaseStateFields.
 };
 
 
@@ -352,7 +366,10 @@ class SimpleShutdownWrap : public ShutdownWrap, public OtherBase {
                      v8::Local<v8::Object> req_wrap_obj);
 
   AsyncWrap* GetAsyncWrap() override { return this; }
-  size_t self_size() const override { return sizeof(*this); }
+
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(SimpleShutdownWrap)
+  SET_SELF_SIZE(SimpleShutdownWrap)
 };
 
 template <typename OtherBase>
@@ -362,7 +379,10 @@ class SimpleWriteWrap : public WriteWrap, public OtherBase {
                   v8::Local<v8::Object> req_wrap_obj);
 
   AsyncWrap* GetAsyncWrap() override { return this; }
-  size_t self_size() const override { return sizeof(*this) + StorageSize(); }
+
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(SimpleWriteWrap)
+  SET_SELF_SIZE(SimpleWriteWrap)
 };
 
 }  // namespace node

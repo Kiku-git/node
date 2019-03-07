@@ -447,6 +447,33 @@ assert.strictEqual(
   notUtilIsDeepStrict(boxedString, Object('test'));
   boxedSymbol.slow = true;
   notUtilIsDeepStrict(boxedSymbol, {});
+  utilIsDeepStrict(Object(BigInt(1)), Object(BigInt(1)));
+  notUtilIsDeepStrict(Object(BigInt(1)), Object(BigInt(2)));
+
+  const booleanish = new Boolean(true);
+  Object.defineProperty(booleanish, Symbol.toStringTag, { value: 'String' });
+  Object.setPrototypeOf(booleanish, String.prototype);
+  notUtilIsDeepStrict(booleanish, new String('true'));
+
+  const numberish = new Number(42);
+  Object.defineProperty(numberish, Symbol.toStringTag, { value: 'String' });
+  Object.setPrototypeOf(numberish, String.prototype);
+  notUtilIsDeepStrict(numberish, new String('42'));
+
+  const stringish = new String('0');
+  Object.defineProperty(stringish, Symbol.toStringTag, { value: 'Number' });
+  Object.setPrototypeOf(stringish, Number.prototype);
+  notUtilIsDeepStrict(stringish, new Number(0));
+
+  const bigintish = new Object(BigInt(42));
+  Object.defineProperty(bigintish, Symbol.toStringTag, { value: 'String' });
+  Object.setPrototypeOf(bigintish, String.prototype);
+  notUtilIsDeepStrict(bigintish, new String('42'));
+
+  const symbolish = new Object(Symbol('fhqwhgads'));
+  Object.defineProperty(symbolish, Symbol.toStringTag, { value: 'String' });
+  Object.setPrototypeOf(symbolish, String.prototype);
+  notUtilIsDeepStrict(symbolish, new String('fhqwhgads'));
 }
 
 // Minus zero
@@ -459,10 +486,13 @@ utilIsDeepStrict(-0, -0);
   const obj1 = { [symbol1]: 1 };
   const obj2 = { [symbol1]: 1 };
   const obj3 = { [Symbol()]: 1 };
+  const obj4 = { };
   // Add a non enumerable symbol as well. It is going to be ignored!
   Object.defineProperty(obj2, Symbol(), { value: 1 });
+  Object.defineProperty(obj4, symbol1, { value: 1 });
   notUtilIsDeepStrict(obj1, obj3);
   utilIsDeepStrict(obj1, obj2);
+  notUtilIsDeepStrict(obj1, obj4);
   // TypedArrays have a fast path. Test for this as well.
   const a = new Uint8Array(4);
   const b = new Uint8Array(4);

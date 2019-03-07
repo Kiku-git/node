@@ -29,7 +29,7 @@ fi
 
 
 # Dependencies bundled in distributions
-addlicense "Acorn" "deps/acorn" "$(cat ${rootdir}/deps/acorn/LICENSE)"
+addlicense "Acorn" "deps/acorn" "$(cat ${rootdir}/deps/acorn/acorn/LICENSE)"
 addlicense "c-ares" "deps/cares" "$(tail -n +3 ${rootdir}/deps/cares/LICENSE.md)"
 addlicense "HTTP Parser" "deps/http_parser" "$(cat deps/http_parser/LICENSE-MIT)"
 if [ -f "${rootdir}/deps/icu/LICENSE" ]; then
@@ -58,6 +58,7 @@ else
 fi
 
 addlicense "libuv" "deps/uv" "$(cat ${rootdir}/deps/uv/LICENSE)"
+addlicense "llhttp" "deps/llhttp" "$(cat deps/llhttp/LICENSE-MIT)"
 addlicense "OpenSSL" "deps/openssl" \
            "$(sed -e '/^ \*\/$/,$d' -e '/^ [^*].*$/d' -e '/\/\*.*$/d' -e '/^$/d' -e 's/^[/ ]\* *//' ${rootdir}/deps/openssl/openssl/LICENSE)"
 addlicense "Punycode.js" "lib/punycode.js" \
@@ -71,8 +72,9 @@ addlicense "npm" "deps/npm" "$(cat ${rootdir}/deps/npm/LICENSE)"
 
 # Build tools
 addlicense "GYP" "tools/gyp" "$(cat ${rootdir}/tools/gyp/LICENSE)"
-addlicense "marked" "tools/doc/node_modules/marked" \
-           "$(cat ${rootdir}/tools/doc/node_modules/marked/LICENSE)"
+addlicense "inspector_protocol" "tools/inspector_protocol" "$(cat ${rootdir}/tools/inspector_protocol/LICENSE)"
+addlicense "jinja2" "tools/jinja2" "$(cat ${rootdir}/tools/jinja2/LICENSE)"
+addlicense "markupsafe" "tools/markupsafe" "$(cat ${rootdir}/tools/markupsafe/LICENSE)"
 
 # Testing tools
 addlicense "cpplint.py" "tools/cpplint.py" \
@@ -84,10 +86,18 @@ addlicense "gtest" "deps/gtest" "$(cat ${rootdir}/deps/gtest/LICENSE)"
 # nghttp2
 addlicense "nghttp2" "deps/nghttp2" "$(cat ${rootdir}/deps/nghttp2/COPYING)"
 
-# remark-cli
-addlicense "remark-cli" "tools/remark-cli" "$(cat ${rootdir}/tools/remark-cli/LICENSE)"
-
 # node-inspect
 addlicense "node-inspect" "deps/node-inspect" "$(cat ${rootdir}/deps/node-inspect/LICENSE)"
+
+# large_pages
+addlicense "large_pages" "src/large_pages" "$(sed -e '/SPDX-License-Identifier/,$d' -e 's/^\/\///' ${rootdir}/src/large_pages/node_large_page.h)"
+
+# deep_freeze
+addlicense "caja" "lib/internal/freeze_intrinsics.js" "$(sed -e '/SPDX-License-Identifier/,$d' -e 's/^\/\///' ${rootdir}/lib/internal/freeze_intrinsics.js)"
+
+# brotli
+addlicense "brotli" "deps/brotli" "$(cat ${rootdir}/deps/brotli/LICENSE)"
+
+addlicense "HdrHistogram" "deps/histogram" "$(cat ${rootdir}/deps/histogram/LICENSE.txt)"
 
 mv $tmplicense $licensefile

@@ -3,22 +3,46 @@
 const Bluebird = require('bluebird')
 
 const audit = require('./install/audit.js')
+const figgyPudding = require('figgy-pudding')
 const fs = require('graceful-fs')
 const Installer = require('./install.js').Installer
 const lockVerify = require('lock-verify')
 const log = require('npmlog')
-const npa = require('npm-package-arg')
+const npa = require('libnpm/parse-arg')
 const npm = require('./npm.js')
+const npmConfig = require('./config/figgy-config.js')
 const output = require('./utils/output.js')
 const parseJson = require('json-parse-better-errors')
 
 const readFile = Bluebird.promisify(fs.readFile)
 
+const AuditConfig = figgyPudding({
+  also: {},
+  'audit-level': {},
+  deepArgs: 'deep-args',
+  'deep-args': {},
+  dev: {},
+  force: {},
+  'dry-run': {},
+  global: {},
+  json: {},
+  only: {},
+  parseable: {},
+  prod: {},
+  production: {},
+  registry: {},
+  runId: {}
+})
+
 module.exports = auditCmd
 
-auditCmd.usage =
-  'npm audit\n' +
-  'npm audit fix\n'
+const usage = require('./utils/usage')
+auditCmd.usage = usage(
+  'audit',
+  '\nnpm audit [--json]' +
+  '\nnpm audit fix ' +
+  '[--force|--package-lock-only|--dry-run|--production|--only=(dev|prod)]'
+)
 
 auditCmd.completion = function (opts, cb) {
   const argv = opts.conf.argv.remain
@@ -100,18 +124,18 @@ function maybeReadFile (name) {
       }
     })
     .catch({code: 'ENOENT'}, () => null)
-    .catch(ex => {
+    .catch((ex) => {
       ex.file = file
       throw ex
     })
 }
 
-function filterEnv (action) {
-  const includeDev = npm.config.get('dev') ||
-    (!/^prod(uction)?$/.test(npm.config.get('only')) && !npm.config.get('production')) ||
-    /^dev(elopment)?$/.test(npm.config.get('only')) ||
-    /^dev(elopment)?$/.test(npm.config.get('also'))
-  const includeProd = !/^dev(elopment)?$/.test(npm.config.get('only'))
+function filterEnv (action, opts) {
+  const includeDev = opts.dev ||
+    (!/^prod(uction)?$/.test(opts.only) && !opts.production) ||
+    /^dev(elopment)?$/.test(opts.only) ||
+    /^dev(elopment)?$/.test(opts.also)
+  const includeProd = !/^dev(elopment)?$/.test(opts.only)
   const resolves = action.resolves.filter(({dev}) => {
     return (dev && includeDev) || (!dev && includeProd)
   })
@@ -121,7 +145,8 @@ function filterEnv (action) {
 }
 
 function auditCmd (args, cb) {
-  if (npm.config.get('global')) {
+  const opts = AuditConfig(npmConfig())
+  if (opts.global) {
     const err = new Error('`npm audit` does not support testing globals')
     err.code = 'EAUDITGLOBAL'
     throw err
@@ -152,7 +177,7 @@ function auditCmd (args, cb) {
       (pkgJson && pkgJson.dependencies) || {},
       (pkgJson && pkgJson.devDependencies) || {}
     )
-    return lockVerify(npm.prefix).then(result => {
+    return lockVerify(npm.prefix).then((result) => {
       if (result.status) return audit.generate(sw, requires)
 
       const lockFile = shrinkwrap ? 'npm-shrinkwrap.json' : 'package-lock.json'
@@ -163,9 +188,17 @@ function auditCmd (args, cb) {
     })
   }).then((auditReport) => {
     return audit.submitForFullReport(auditReport)
-  }).catch(err => {
-    if (err.statusCode === 404 || err.statusCode >= 500) {
-      const ne = new Error(`Your configured registry (${npm.config.get('registry')}) does not support audit requests.`)
+  }).catch((err) => {
+    if (err.statusCode >= 400) {
+      let msg
+      if (err.statusCode === 401) {
+        msg = `Either your login credentials are invalid or your registry (${opts.registry}) does not support audit.`
+      } else if (err.statusCode === 404) {
+        msg = `Your configured registry (${opts.registry}) does not support audit requests.`
+      } else {
+        msg = `Your configured registry (${opts.registry}) does not support audit requests, or the audit endpoint is temporarily unavailable.`
+      }
+      const ne = new Error(msg)
       ne.code = 'ENOAUDIT'
       ne.wrapped = err
       throw ne
@@ -174,7 +207,7 @@ function auditCmd (args, cb) {
   }).then((auditResult) => {
     if (args[0] === 'fix') {
       const actions = (auditResult.actions || []).reduce((acc, action) => {
-        action = filterEnv(action)
+        action = filterEnv(action, opts)
         if (!action) { return acc }
         if (action.isMajor) {
           acc.major.add(`${action.module}@${action.target}`)
@@ -211,7 +244,7 @@ function auditCmd (args, cb) {
         review: new Set()
       })
       return Bluebird.try(() => {
-        const installMajor = npm.config.get('force')
+        const installMajor = opts.force
         const installCount = actions.install.size + (installMajor ? actions.major.size : 0) + actions.update.size
         const vulnFixCount = new Set([...actions.installFixes, ...actions.updateFixes, ...(installMajor ? actions.majorFixes : [])]).size
         const metavuln = auditResult.metadata.vulnerabilities
@@ -226,16 +259,16 @@ function auditCmd (args, cb) {
         return Bluebird.fromNode(cb => {
           new Auditor(
             npm.prefix,
-            !!npm.config.get('dry-run'),
+            !!opts['dry-run'],
             [...actions.install, ...(installMajor ? actions.major : [])],
-            {
+            opts.concat({
               runId: auditResult.runId,
               deepArgs: [...actions.update].map(u => u.split('>'))
-            }
+            }).toJSON()
           ).run(cb)
         }).then(() => {
           const numScanned = auditResult.metadata.totalDependencies
-          if (!npm.config.get('json') && !npm.config.get('parseable')) {
+          if (!opts.json && !opts.parseable) {
             output(`fixed ${vulnFixCount} of ${total} vulnerabilit${total === 1 ? 'y' : 'ies'} in ${numScanned} scanned package${numScanned === 1 ? '' : 's'}`)
             if (actions.review.size) {
               output(`  ${actions.review.size} vulnerabilit${actions.review.size === 1 ? 'y' : 'ies'} required manual review and could not be updated`)
@@ -245,20 +278,25 @@ function auditCmd (args, cb) {
               if (installMajor) {
                 output('  (installed due to `--force` option)')
               } else {
-                output('  (use `npm audit fix --force` to install breaking changes; or do it by hand)')
+                output('  (use `npm audit fix --force` to install breaking changes;' +
+                       ' or refer to `npm audit` for steps to fix these manually)')
               }
             }
           }
         })
       })
     } else {
-      const vulns =
-        auditResult.metadata.vulnerabilities.low +
-        auditResult.metadata.vulnerabilities.moderate +
-        auditResult.metadata.vulnerabilities.high +
-        auditResult.metadata.vulnerabilities.critical
+      const levels = ['low', 'moderate', 'high', 'critical']
+      const minLevel = levels.indexOf(opts['audit-level'])
+      const vulns = levels.reduce((count, level, i) => {
+        return i < minLevel ? count : count + (auditResult.metadata.vulnerabilities[level] || 0)
+      }, 0)
       if (vulns > 0) process.exitCode = 1
-      return audit.printFullReport(auditResult)
+      if (opts.parseable) {
+        return audit.printParseableReport(auditResult)
+      } else {
+        return audit.printFullReport(auditResult)
+      }
     }
   }).asCallback(cb)
 }

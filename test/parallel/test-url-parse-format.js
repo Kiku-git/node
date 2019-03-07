@@ -180,7 +180,7 @@ const parseTests = {
     path: '/b/c'
   },
 
-  // an unexpected invalid char in the hostname.
+  // An unexpected invalid char in the hostname.
   'HtTp://x.y.cOm;a/b/c?d=e#f g<h>i': {
     href: 'http://x.y.com/;a/b/c?d=e#f%20g%3Ch%3Ei',
     protocol: 'http:',
@@ -194,7 +194,7 @@ const parseTests = {
     path: ';a/b/c?d=e'
   },
 
-  // make sure that we don't accidentally lcast the path parts.
+  // Make sure that we don't accidentally lcast the path parts.
   'HtTp://x.y.cOm;A/b/c?d=e#f g<h>i': {
     href: 'http://x.y.com/;A/b/c?d=e#f%20g%3Ch%3Ei',
     protocol: 'http:',
@@ -890,6 +890,39 @@ const parseTests = {
     pathname: '/*',
     path: '/*',
     href: 'https:///*'
+  },
+
+  // The following two URLs are the same, but they differ for
+  // a capital A: it is important that we verify that the protocol
+  // is checked in a case-insensitive manner.
+  'javascript:alert(1);a=\x27@white-listed.com\x27': {
+    protocol: 'javascript:',
+    slashes: null,
+    auth: null,
+    host: null,
+    port: null,
+    hostname: null,
+    hash: null,
+    search: null,
+    query: null,
+    pathname: "alert(1);a='@white-listed.com'",
+    path: "alert(1);a='@white-listed.com'",
+    href: "javascript:alert(1);a='@white-listed.com'"
+  },
+
+  'javAscript:alert(1);a=\x27@white-listed.com\x27': {
+    protocol: 'javascript:',
+    slashes: null,
+    auth: null,
+    host: null,
+    port: null,
+    hostname: null,
+    hash: null,
+    search: null,
+    query: null,
+    pathname: "alert(1);a='@white-listed.com'",
+    path: "alert(1);a='@white-listed.com'",
+    href: "javascript:alert(1);a='@white-listed.com'"
   }
 };
 
@@ -920,4 +953,26 @@ for (const u in parseTests) {
 
   assert.strictEqual(actual, expected,
                      `format(${u}) == ${u}\nactual:${actual}`);
+}
+
+{
+  const parsed = url.parse('http://nodejs.org/')
+    .resolveObject('jAvascript:alert(1);a=\x27@white-listed.com\x27');
+
+  const expected = Object.assign(new url.Url(), {
+    protocol: 'javascript:',
+    slashes: null,
+    auth: null,
+    host: null,
+    port: null,
+    hostname: null,
+    hash: null,
+    search: null,
+    query: null,
+    pathname: "alert(1);a='@white-listed.com'",
+    path: "alert(1);a='@white-listed.com'",
+    href: "javascript:alert(1);a='@white-listed.com'"
+  });
+
+  assert.deepStrictEqual(parsed, expected);
 }

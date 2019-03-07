@@ -41,7 +41,7 @@ childProcess.exec(
   }
 );
 
-// test that preloading a throwing module aborts
+// Test that preloading a throwing module aborts
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA, fixtureThrows])} "${fixtureB}"`,
   function(err, stdout, stderr) {
@@ -53,7 +53,7 @@ childProcess.exec(
   }
 );
 
-// test that preload can be used with --eval
+// Test that preload can be used with --eval
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA])}-e "console.log('hello');"`,
   function(err, stdout, stderr) {
@@ -62,7 +62,7 @@ childProcess.exec(
   }
 );
 
-// test that preload can be used with stdin
+// Test that preload can be used with stdin
 const stdinProc = childProcess.spawn(
   nodeBinary,
   ['--require', fixtureA],
@@ -98,7 +98,7 @@ replProc.on('close', function(code) {
   assert.strictEqual(replStdout, output);
 });
 
-// test that preload placement at other points in the cmdline
+// Test that preload placement at other points in the cmdline
 // also test that duplicated preload only gets loaded once
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA])}-e "console.log('hello');" ${
@@ -130,11 +130,32 @@ childProcess.exec(
   }
 );
 
-// https://github.com/nodejs/node/issues/1691
-process.chdir(fixtures.fixturesDir);
+// Test that preloading with a relative path works
 childProcess.exec(
-  `"${nodeBinary}" --expose_natives_as=v8natives --require ` +
+  `"${nodeBinary}" ${preloadOption(['./printA.js'])} "${fixtureB}"`,
+  { cwd: fixtures.fixturesDir },
+  common.mustCall(function(err, stdout, stderr) {
+    assert.ifError(err);
+    assert.strictEqual(stdout, 'A\nB\n');
+  })
+);
+if (common.isWindows) {
+  // https://github.com/nodejs/node/issues/21918
+  childProcess.exec(
+    `"${nodeBinary}" ${preloadOption(['.\\printA.js'])} "${fixtureB}"`,
+    { cwd: fixtures.fixturesDir },
+    common.mustCall(function(err, stdout, stderr) {
+      assert.ifError(err);
+      assert.strictEqual(stdout, 'A\nB\n');
+    })
+  );
+}
+
+// https://github.com/nodejs/node/issues/1691
+childProcess.exec(
+  `"${nodeBinary}" --require ` +
      `"${fixtures.path('cluster-preload.js')}" cluster-preload-test.js`,
+  { cwd: fixtures.fixturesDir },
   function(err, stdout, stderr) {
     assert.ifError(err);
     assert.ok(/worker terminated with code 43/.test(stdout));

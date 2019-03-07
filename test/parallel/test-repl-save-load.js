@@ -20,7 +20,8 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-const common = require('../common');
+require('../common');
+const ArrayStream = require('../common/arraystream');
 const assert = require('assert');
 const join = require('path').join;
 const fs = require('fs');
@@ -32,7 +33,7 @@ const repl = require('repl');
 
 const works = [['inner.one'], 'inner.o'];
 
-const putIn = new common.ArrayStream();
+const putIn = new ArrayStream();
 const testMe = repl.start('', putIn);
 
 
@@ -59,8 +60,8 @@ assert.strictEqual(fs.readFileSync(saveFileName, 'utf8'),
     'return "saved";',
     '}'
   ];
-  const putIn = new common.ArrayStream();
-  const replServer = repl.start('', putIn);
+  const putIn = new ArrayStream();
+  const replServer = repl.start({ terminal: true, stream: putIn });
 
   putIn.run(['.editor']);
   putIn.run(cmds);
@@ -69,10 +70,10 @@ assert.strictEqual(fs.readFileSync(saveFileName, 'utf8'),
   putIn.run([`.save ${saveFileName}`]);
   replServer.close();
   assert.strictEqual(fs.readFileSync(saveFileName, 'utf8'),
-                     `${cmds.join('\n')}\n`);
+                     `${cmds.join('\n')}\n\n`);
 }
 
-// make sure that the REPL data is "correct"
+// Make sure that the REPL data is "correct"
 // so when I load it back I know I'm good
 testMe.complete('inner.o', function(error, data) {
   assert.deepStrictEqual(data, works);
@@ -84,7 +85,7 @@ putIn.run(['.clear']);
 // Load the file back in
 putIn.run([`.load ${saveFileName}`]);
 
-// make sure that the REPL data is "correct"
+// Make sure that the REPL data is "correct"
 testMe.complete('inner.o', function(error, data) {
   assert.deepStrictEqual(data, works);
 });
@@ -96,7 +97,7 @@ let loadFile = join(tmpdir.path, 'file.does.not.exist');
 
 // should not break
 putIn.write = function(data) {
-  // make sure I get a failed to load message and not some crazy error
+  // Make sure I get a failed to load message and not some crazy error
   assert.strictEqual(data, `Failed to load:${loadFile}\n`);
   // eat me to avoid work
   putIn.write = () => {};
@@ -120,7 +121,7 @@ const invalidFileName = join(tmpdir.path, '\0\0\0\0\0');
 
 // should not break
 putIn.write = function(data) {
-  // make sure I get a failed to save message and not some other error
+  // Make sure I get a failed to save message and not some other error
   assert.strictEqual(data, `Failed to save:${invalidFileName}\n`);
   // reset to no-op
   putIn.write = () => {};

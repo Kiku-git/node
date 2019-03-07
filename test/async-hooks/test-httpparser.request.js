@@ -1,21 +1,20 @@
+// Flags: --expose-internals
 'use strict';
 
 const common = require('../common');
 const assert = require('assert');
-const tick = require('./tick');
+const tick = require('../common/tick');
 const initHooks = require('./init-hooks');
 const { checkInvocations } = require('./hook-checks');
 
-const binding = process.binding('http_parser');
-const HTTPParser = binding.HTTPParser;
+const hooks = initHooks();
+hooks.enable();
+
+const { HTTPParser } = require('_http_common');
 
 const REQUEST = HTTPParser.REQUEST;
 
 const kOnHeadersComplete = HTTPParser.kOnHeadersComplete | 0;
-
-const hooks = initHooks();
-
-hooks.enable();
 
 const request = Buffer.from(
   'GET /hello HTTP/1.1\r\n\r\n'

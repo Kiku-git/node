@@ -20,7 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 'use strict';
-// verify that the string decoder works getting 1 byte at a time,
+// Verify that the string decoder works getting 1 byte at a time,
 // the whole buffer at once, and that both match the .toString(enc)
 // result of the entire buffer.
 
@@ -31,7 +31,7 @@ const encodings = ['base64', 'hex', 'utf8', 'utf16le', 'ucs2'];
 
 const bufs = [ '☃💩', 'asdf' ].map((b) => Buffer.from(b));
 
-// also test just arbitrary bytes from 0-15.
+// Also test just arbitrary bytes from 0-15.
 for (let i = 1; i <= 16; i++) {
   const bytes = '.'.repeat(i - 1).split('.').map((_, j) => j + 0x78);
   bufs.push(Buffer.from(bytes));
@@ -103,8 +103,10 @@ function testBuf(encoding, buf) {
   // .toString() on the buffer
   const res3 = buf.toString(encoding);
 
-  assert.strictEqual(res1, res3, 'one byte at a time should match toString');
-  assert.strictEqual(res2, res3, 'all bytes at once should match toString');
+  // One byte at a time should match toString
+  assert.strictEqual(res1, res3);
+  // All bytes at once should match toString
+  assert.strictEqual(res2, res3);
 }
 
 function testEnd(encoding, incomplete, next, expected) {

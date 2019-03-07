@@ -61,13 +61,6 @@ enum inspector_handshake_event {
   kInspectorHandshakeNoEvents
 };
 
-struct expectations {
-  std::string actual_data;
-  size_t actual_offset;
-  size_t actual_end;
-  int err_code;
-};
-
 static bool waiting_to_close = true;
 
 void handle_closed(uv_handle_t* handle) {
@@ -107,7 +100,7 @@ class TestInspectorDelegate : public InspectorSocket::Delegate {
                             handshake_delegate_(stop_if_stop_path),
                             fail_on_ws_frame_(false) { }
 
-  ~TestInspectorDelegate() {
+  ~TestInspectorDelegate() override {
     assert_is_delegate(this);
     delegate = nullptr;
   }
@@ -353,7 +346,7 @@ static void on_connection(uv_connect_t* connect, int status) {
 
 class InspectorSocketTest : public ::testing::Test {
  protected:
-  virtual void SetUp() {
+  void SetUp() override {
     connected = false;
     GTEST_ASSERT_EQ(0, uv_loop_init(&loop));
     server = uv_tcp_t();
@@ -375,7 +368,7 @@ class InspectorSocketTest : public ::testing::Test {
     really_close(reinterpret_cast<uv_handle_t*>(&server));
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     really_close(reinterpret_cast<uv_handle_t*>(&client_socket));
     SPIN_WHILE(delegate != nullptr);
     const int err = uv_loop_close(&loop);

@@ -163,9 +163,11 @@ inline int StreamBase::Shutdown(v8::Local<v8::Object> req_wrap_obj) {
   HandleScope handle_scope(env->isolate());
 
   if (req_wrap_obj.IsEmpty()) {
-    req_wrap_obj =
-        env->shutdown_wrap_template()
-            ->NewInstance(env->context()).ToLocalChecked();
+    if (!env->shutdown_wrap_template()
+             ->NewInstance(env->context())
+             .ToLocal(&req_wrap_obj)) {
+      return UV_EBUSY;
+    }
     StreamReq::ResetObject(req_wrap_obj);
   }
 
@@ -179,7 +181,9 @@ inline int StreamBase::Shutdown(v8::Local<v8::Object> req_wrap_obj) {
 
   const char* msg = Error();
   if (msg != nullptr) {
-    req_wrap_obj->Set(env->error_string(), OneByteString(env->isolate(), msg));
+    req_wrap_obj->Set(
+        env->context(),
+        env->error_string(), OneByteString(env->isolate(), msg)).FromJust();
     ClearError();
   }
 
@@ -209,9 +213,11 @@ inline StreamWriteResult StreamBase::Write(
   HandleScope handle_scope(env->isolate());
 
   if (req_wrap_obj.IsEmpty()) {
-    req_wrap_obj =
-        env->write_wrap_template()
-            ->NewInstance(env->context()).ToLocalChecked();
+    if (!env->write_wrap_template()
+             ->NewInstance(env->context())
+             .ToLocal(&req_wrap_obj)) {
+      return StreamWriteResult { false, UV_EBUSY, nullptr, 0 };
+    }
     StreamReq::ResetObject(req_wrap_obj);
   }
 
@@ -228,7 +234,9 @@ inline StreamWriteResult StreamBase::Write(
 
   const char* msg = Error();
   if (msg != nullptr) {
-    req_wrap_obj->Set(env->error_string(), OneByteString(env->isolate(), msg));
+    req_wrap_obj->Set(env->context(),
+                      env->error_string(),
+                      OneByteString(env->isolate(), msg)).FromJust();
     ClearError();
   }
 
@@ -266,9 +274,7 @@ inline WriteWrap* StreamBase::CreateWriteWrap(
 }
 
 template <class Base>
-void StreamBase::AddMethods(Environment* env,
-                            Local<FunctionTemplate> t,
-                            int flags) {
+void StreamBase::AddMethods(Environment* env, Local<FunctionTemplate> t) {
   HandleScope scope(env->isolate());
 
   enum PropertyAttribute attributes =
@@ -278,28 +284,28 @@ void StreamBase::AddMethods(Environment* env,
   Local<Signature> signature = Signature::New(env->isolate(), t);
 
   Local<FunctionTemplate> get_fd_templ =
-      FunctionTemplate::New(env->isolate(),
-                            GetFD<Base>,
-                            env->as_external(),
-                            signature);
+      env->NewFunctionTemplate(GetFD<Base>,
+                               signature,
+                               v8::ConstructorBehavior::kThrow,
+                               v8::SideEffectType::kHasNoSideEffect);
 
   Local<FunctionTemplate> get_external_templ =
-      FunctionTemplate::New(env->isolate(),
-                            GetExternal<Base>,
-                            env->as_external(),
-                            signature);
+      env->NewFunctionTemplate(GetExternal<Base>,
+                               signature,
+                               v8::ConstructorBehavior::kThrow,
+                               v8::SideEffectType::kHasNoSideEffect);
 
   Local<FunctionTemplate> get_bytes_read_templ =
-      FunctionTemplate::New(env->isolate(),
-                            GetBytesRead<Base>,
-                            env->as_external(),
-                            signature);
+      env->NewFunctionTemplate(GetBytesRead<Base>,
+                               signature,
+                               v8::ConstructorBehavior::kThrow,
+                               v8::SideEffectType::kHasNoSideEffect);
 
   Local<FunctionTemplate> get_bytes_written_templ =
-      FunctionTemplate::New(env->isolate(),
-                            GetBytesWritten<Base>,
-                            env->as_external(),
-                            signature);
+      env->NewFunctionTemplate(GetBytesWritten<Base>,
+                               signature,
+                               v8::ConstructorBehavior::kThrow,
+                               v8::SideEffectType::kHasNoSideEffect);
 
   t->PrototypeTemplate()->SetAccessorProperty(env->fd_string(),
                                               get_fd_templ,
@@ -324,8 +330,7 @@ void StreamBase::AddMethods(Environment* env,
   env->SetProtoMethod(t, "readStart", JSMethod<Base, &StreamBase::ReadStartJS>);
   env->SetProtoMethod(t, "readStop", JSMethod<Base, &StreamBase::ReadStopJS>);
   env->SetProtoMethod(t, "shutdown", JSMethod<Base, &StreamBase::Shutdown>);
-  if ((flags & kFlagHasWritev) != 0)
-    env->SetProtoMethod(t, "writev", JSMethod<Base, &StreamBase::Writev>);
+  env->SetProtoMethod(t, "writev", JSMethod<Base, &StreamBase::Writev>);
   env->SetProtoMethod(t,
                       "writeBuffer",
                       JSMethod<Base, &StreamBase::WriteBuffer>);
@@ -414,18 +419,9 @@ inline void ShutdownWrap::OnDone(int status) {
   Dispose();
 }
 
-inline void WriteWrap::SetAllocatedStorage(char* data, size_t size) {
-  CHECK_NULL(storage_);
-  storage_ = data;
-  storage_size_ = size;
-}
-
-inline char* WriteWrap::Storage() {
-  return storage_;
-}
-
-inline size_t WriteWrap::StorageSize() const {
-  return storage_size_;
+inline void WriteWrap::SetAllocatedStorage(AllocatedBuffer&& storage) {
+  CHECK_NULL(storage_.data());
+  storage_ = std::move(storage);
 }
 
 inline void WriteWrap::OnDone(int status) {
@@ -437,17 +433,18 @@ inline void StreamReq::Done(int status, const char* error_str) {
   AsyncWrap* async_wrap = GetAsyncWrap();
   Environment* env = async_wrap->env();
   if (error_str != nullptr) {
-    async_wrap->object()->Set(env->error_string(),
-                              OneByteString(env->isolate(), error_str));
+    async_wrap->object()->Set(env->context(),
+                              env->error_string(),
+                              OneByteString(env->isolate(), error_str))
+                              .FromJust();
   }
 
   OnDone(status);
 }
 
 inline void StreamReq::ResetObject(v8::Local<v8::Object> obj) {
-#ifdef DEBUG
-  CHECK_GT(obj->InternalFieldCount(), StreamReq::kStreamReqField);
-#endif
+  DCHECK_GT(obj->InternalFieldCount(), StreamReq::kStreamReqField);
+
   obj->SetAlignedPointerInInternalField(0, nullptr);  // BaseObject field.
   obj->SetAlignedPointerInInternalField(StreamReq::kStreamReqField, nullptr);
 }

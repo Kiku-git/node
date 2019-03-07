@@ -30,7 +30,7 @@ class CWasmEntryArgTester {
  public:
   CWasmEntryArgTester(std::initializer_list<uint8_t> wasm_function_bytes,
                       std::function<ReturnType(Args...)> expected_fn)
-      : runner_(kExecuteTurbofan),
+      : runner_(ExecutionTier::kOptimized),
         isolate_(runner_.main_isolate()),
         expected_fn_(expected_fn),
         sig_(runner_.template CreateSig<ReturnType, Args...>()) {
@@ -44,31 +44,29 @@ class CWasmEntryArgTester {
   }
 
   template <typename... Rest>
-  void WriteToBuffer(uint8_t* buf, Rest... rest) {
+  void WriteToBuffer(Address buf, Rest... rest) {
     static_assert(sizeof...(rest) == 0, "this is the base case");
   }
 
   template <typename First, typename... Rest>
-  void WriteToBuffer(uint8_t* buf, First first, Rest... rest) {
+  void WriteToBuffer(Address buf, First first, Rest... rest) {
     WriteUnalignedValue(buf, first);
     WriteToBuffer(buf + sizeof(first), rest...);
   }
 
   void CheckCall(Args... args) {
     std::vector<uint8_t> arg_buffer(sizeof...(args) * 8);
-    WriteToBuffer(arg_buffer.data(), args...);
+    WriteToBuffer(reinterpret_cast<Address>(arg_buffer.data()), args...);
 
     Handle<Object> receiver = isolate_->factory()->undefined_value();
     Handle<Object> buffer_obj(reinterpret_cast<Object*>(arg_buffer.data()),
                               isolate_);
     CHECK(!buffer_obj->IsHeapObject());
-    Handle<Object> call_args[]{
-        Handle<Object>::cast(isolate_->factory()->NewForeign(
-            wasm_code_->instructions().start(), TENURED)),
-        handle(
-            wasm_code_->native_module()->compiled_module()->owning_instance(),
-            isolate_),
-        buffer_obj};
+    Handle<Object> code_entry_obj(
+        reinterpret_cast<Object*>(wasm_code_->instruction_start()), isolate_);
+    CHECK(!code_entry_obj->IsHeapObject());
+    Handle<Object> call_args[]{code_entry_obj,
+                               runner_.builder().instance_object(), buffer_obj};
     static_assert(
         arraysize(call_args) == compiler::CWasmEntryParameters::kNumParameters,
         "adapt this test");
@@ -80,7 +78,8 @@ class CWasmEntryArgTester {
     CHECK_EQ(0, Smi::ToInt(*return_obj.ToHandleChecked()));
 
     // Check the result.
-    ReturnType result = ReadUnalignedValue<ReturnType>(arg_buffer.data());
+    ReturnType result = ReadUnalignedValue<ReturnType>(
+        reinterpret_cast<Address>(arg_buffer.data()));
     ReturnType expected = expected_fn_(args...);
     if (std::is_floating_point<ReturnType>::value) {
       CHECK_DOUBLE_EQ(expected, result);
@@ -95,7 +94,7 @@ class CWasmEntryArgTester {
   std::function<ReturnType(Args...)> expected_fn_;
   FunctionSig* sig_;
   Handle<JSFunction> c_wasm_entry_fn_;
-  wasm::WasmCode* wasm_code_;
+  WasmCode* wasm_code_;
 };
 
 }  // namespace

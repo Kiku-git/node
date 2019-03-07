@@ -23,7 +23,7 @@
 const { mustCall, mustNotCall } = require('../common');
 const assert = require('assert');
 
-const { methods, HTTPParser } = process.binding('http_parser');
+const { methods, HTTPParser } = require('_http_common');
 const { REQUEST, RESPONSE } = HTTPParser;
 
 const kOnHeaders = HTTPParser.kOnHeaders | 0;
@@ -95,7 +95,7 @@ function expectBody(expected) {
     throw new Error('hello world');
   };
 
-  parser.reinitialize(HTTPParser.REQUEST);
+  parser.reinitialize(HTTPParser.REQUEST, false);
 
   assert.throws(
     () => { parser.execute(request, 0, request.length); },
@@ -555,7 +555,7 @@ function expectBody(expected) {
   parser[kOnBody] = expectBody('ping');
   parser.execute(req1, 0, req1.length);
 
-  parser.reinitialize(REQUEST);
+  parser.reinitialize(REQUEST, false);
   parser[kOnBody] = expectBody('pong');
   parser[kOnHeadersComplete] = onHeadersComplete2;
   parser.execute(req2, 0, req2.length);

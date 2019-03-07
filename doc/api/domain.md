@@ -38,7 +38,7 @@ Domain error handlers are not a substitute for closing down a
 process when an error occurs.
 
 By the very nature of how [`throw`][] works in JavaScript, there is almost
-never any way to safely "pick up where you left off", without leaking
+never any way to safely "pick up where it left off", without leaking
 references, or creating some other sort of undefined brittle state.
 
 The safest way to respond to a thrown error is to shut down the
@@ -122,13 +122,13 @@ if (cluster.isMaster) {
     d.on('error', (er) => {
       console.error(`error ${er.stack}`);
 
-      // Note: We're in dangerous territory!
+      // We're in dangerous territory!
       // By definition, something unexpected occurred,
       // which we probably didn't want.
       // Anything can happen now! Be very careful!
 
       try {
-        // make sure we close down within 30 seconds
+        // Make sure we close down within 30 seconds
         const killtimer = setTimeout(() => {
           process.exit(1);
         }, 30000);
@@ -143,12 +143,12 @@ if (cluster.isMaster) {
         // a new worker.
         cluster.worker.disconnect();
 
-        // try to send an error to the request that triggered the problem
+        // Try to send an error to the request that triggered the problem
         res.statusCode = 500;
         res.setHeader('content-type', 'text/plain');
         res.end('Oops, there was a problem!\n');
       } catch (er2) {
-        // oh well, not much we can do at this point.
+        // Oh well, not much we can do at this point.
         console.error(`Error sending 500! ${er2.stack}`);
       }
     });
@@ -240,15 +240,15 @@ perhaps we would like to have a separate domain to use for each request.
 That is possible via explicit binding.
 
 ```js
-// create a top-level domain for the server
+// Create a top-level domain for the server
 const domain = require('domain');
 const http = require('http');
 const serverDomain = domain.create();
 
 serverDomain.run(() => {
-  // server is created in the scope of serverDomain
+  // Server is created in the scope of serverDomain
   http.createServer((req, res) => {
-    // req and res are also created in the scope of serverDomain
+    // Req and res are also created in the scope of serverDomain
     // however, we'd prefer to have a separate domain for each request.
     // create it first thing, and add req and res to it.
     const reqd = domain.create();
@@ -311,14 +311,12 @@ The returned function will be a wrapper around the supplied callback
 function. When the returned function is called, any errors that are
 thrown will be routed to the domain's `'error'` event.
 
-#### Example
-
 ```js
 const d = domain.create();
 
 function readSomeFile(filename, cb) {
   fs.readFile(filename, 'utf8', d.bind((er, data) => {
-    // if this throws, it will also be passed to the domain
+    // If this throws, it will also be passed to the domain
     return cb(er, data ? JSON.parse(data) : null);
   }));
 }
@@ -370,14 +368,12 @@ objects sent as the first argument to the function.
 In this way, the common `if (err) return callback(err);` pattern can be replaced
 with a single error handler in a single place.
 
-#### Example
-
 ```js
 const d = domain.create();
 
 function readSomeFile(filename, cb) {
   fs.readFile(filename, 'utf8', d.intercept((data) => {
-    // note, the first argument is never passed to the
+    // Note, the first argument is never passed to the
     // callback since it is assumed to be the 'Error' argument
     // and thus intercepted by the domain.
 
@@ -414,8 +410,6 @@ created in that context. Optionally, arguments can be passed to
 the function.
 
 This is the most basic way to use a domain.
-
-Example:
 
 ```js
 const domain = require('domain');

@@ -38,12 +38,13 @@ const unzips = [
   zlib.Unzip(),
   zlib.Gunzip(),
   zlib.Inflate(),
-  zlib.InflateRaw()
+  zlib.InflateRaw(),
+  zlib.BrotliDecompress()
 ];
 
 nonStringInputs.forEach(common.mustCall((input) => {
   // zlib.gunzip should not throw an error when called with bad input.
-  zlib.gunzip(input, function(err, buffer) {
+  zlib.gunzip(input, (err, buffer) => {
     // zlib.gunzip should pass the error to the callback.
     assert.ok(err);
   });

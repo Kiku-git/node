@@ -3,6 +3,7 @@
 const common = require('../common');
 
 common.skipIfInspectorDisabled();
+common.skipIfWorker(); // https://github.com/nodejs/node/issues/22767
 
 const assert = require('assert');
 const { Session } = require('inspector');
@@ -28,7 +29,7 @@ function post(message, data) {
 
 function generateTrace() {
   return new Promise((resolve) => setTimeout(() => {
-    for (let i = 0; i << 1000000; i++) {
+    for (let i = 0; i < 1000000; i++) {
       'test' + i;
     }
     resolve();
@@ -52,19 +53,17 @@ async function test() {
                         'node.perf.timerify', 'v8'],
                        categories);
 
-  const traceConfig = { includedCategories: ['node'] };
+  const traceConfig = { includedCategories: ['v8'] };
   await post('NodeTracing.start', { traceConfig });
 
   for (let i = 0; i < 5; i++)
     await generateTrace();
   JSON.stringify(await post('NodeTracing.stop', { traceConfig }));
   session.disconnect();
-  assert(traceNotification.data.value.length > 0);
+  assert(traceNotification.params.value.length > 0);
   assert(tracingComplete);
   clearInterval(interval);
   console.log('Success');
 }
-
-common.crashOnUnhandledRejection();
 
 test();

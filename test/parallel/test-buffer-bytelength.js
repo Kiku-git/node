@@ -74,11 +74,11 @@ assert.strictEqual(Buffer.byteLength('∑éllö wørl∂!', 'utf-8'), 19);
 assert.strictEqual(Buffer.byteLength('κλμνξο', 'utf8'), 12);
 assert.strictEqual(Buffer.byteLength('挵挶挷挸挹', 'utf-8'), 15);
 assert.strictEqual(Buffer.byteLength('𠝹𠱓𠱸', 'UTF8'), 12);
-// without an encoding, utf8 should be assumed
+// Without an encoding, utf8 should be assumed
 assert.strictEqual(Buffer.byteLength('hey there'), 9);
 assert.strictEqual(Buffer.byteLength('𠱸挶νξ#xx :)'), 17);
 assert.strictEqual(Buffer.byteLength('hello world', ''), 11);
-// it should also be assumed with unrecognized encoding
+// It should also be assumed with unrecognized encoding
 assert.strictEqual(Buffer.byteLength('hello world', 'abc'), 11);
 assert.strictEqual(Buffer.byteLength('ßœ∑≈', 'unkn0wn enc0ding'), 10);
 

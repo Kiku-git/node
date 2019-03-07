@@ -8,13 +8,13 @@ const _validateStdio = require('internal/child_process')._validateStdio;
 const expectedError =
   common.expectsError({ code: 'ERR_INVALID_OPT_VALUE', type: TypeError }, 2);
 
-// should throw if string and not ignore, pipe, or inherit
+// Should throw if string and not ignore, pipe, or inherit
 assert.throws(() => _validateStdio('foo'), expectedError);
 
 // should throw if not a string or array
 assert.throws(() => _validateStdio(600), expectedError);
 
-// should populate stdio with undefined if len < 3
+// Should populate stdio with undefined if len < 3
 {
   const stdio1 = [];
   const result = _validateStdio(stdio1, false);
@@ -24,13 +24,14 @@ assert.throws(() => _validateStdio(600), expectedError);
   assert.strictEqual(result.hasOwnProperty('ipcFd'), true);
 }
 
-// should throw if stdio has ipc and sync is true
+// Should throw if stdio has ipc and sync is true
 const stdio2 = ['ipc', 'ipc', 'ipc'];
 common.expectsError(() => _validateStdio(stdio2, true),
                     { code: 'ERR_IPC_SYNC_FORK', type: Error }
 );
 
-{
+
+if (common.isMainThread) {
   const stdio3 = [process.stdin, process.stdout, process.stderr];
   const result = _validateStdio(stdio3, false);
   assert.deepStrictEqual(result, {
@@ -42,4 +43,7 @@ common.expectsError(() => _validateStdio(stdio2, true),
     ipc: undefined,
     ipcFd: undefined
   });
+} else {
+  common.printSkipMessage(
+    'stdio is not associated with file descriptors in Workers');
 }

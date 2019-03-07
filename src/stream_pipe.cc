@@ -1,10 +1,10 @@
 #include "stream_pipe.h"
 #include "stream_base-inl.h"
 #include "node_buffer.h"
-#include "node_internals.h"
 
 using v8::Context;
 using v8::External;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::Local;
@@ -42,7 +42,7 @@ StreamPipe::StreamPipe(StreamBase* source,
 }
 
 StreamPipe::~StreamPipe() {
-  CHECK(is_closed_);
+  Unpipe();
 }
 
 StreamBase* StreamPipe::source() {
@@ -57,9 +57,11 @@ void StreamPipe::Unpipe() {
   if (is_closed_)
     return;
 
-  // Note that we cannot use virtual methods on `source` and `sink` here,
-  // because this function can be called from their destructors via
+  // Note that we possibly cannot use virtual methods on `source` and `sink`
+  // here, because this function can be called from their destructors via
   // `OnStreamDestroy()`.
+  if (!source_destroyed_)
+    source()->ReadStop();
 
   is_closed_ = true;
   is_reading_ = false;
@@ -76,8 +78,12 @@ void StreamPipe::Unpipe() {
     Context::Scope context_scope(env->context());
     Local<Object> object = pipe->object();
 
-    if (object->Has(env->context(), env->onunpipe_string()).FromJust()) {
-      pipe->MakeCallback(env->onunpipe_string(), 0, nullptr).ToLocalChecked();
+    Local<Value> onunpipe;
+    if (!object->Get(env->context(), env->onunpipe_string()).ToLocal(&onunpipe))
+      return;
+    if (onunpipe->IsFunction() &&
+        pipe->MakeCallback(onunpipe.As<Function>(), 0, nullptr).IsEmpty()) {
+      return;
     }
 
     // Set all the links established in the constructor to `null`.
@@ -85,21 +91,22 @@ void StreamPipe::Unpipe() {
 
     Local<Value> source_v;
     Local<Value> sink_v;
-    source_v = object->Get(env->context(), env->source_string())
-        .ToLocalChecked();
-    sink_v = object->Get(env->context(), env->sink_string())
-        .ToLocalChecked();
-    CHECK(source_v->IsObject());
-    CHECK(sink_v->IsObject());
+    if (!object->Get(env->context(), env->source_string()).ToLocal(&source_v) ||
+        !object->Get(env->context(), env->sink_string()).ToLocal(&sink_v) ||
+        !source_v->IsObject() || !sink_v->IsObject()) {
+      return;
+    }
 
-    object->Set(env->context(), env->source_string(), null).FromJust();
-    object->Set(env->context(), env->sink_string(), null).FromJust();
-    source_v.As<Object>()->Set(env->context(),
-                               env->pipe_target_string(),
-                               null).FromJust();
-    sink_v.As<Object>()->Set(env->context(),
-                             env->pipe_source_string(),
-                             null).FromJust();
+    if (object->Set(env->context(), env->source_string(), null).IsNothing() ||
+        object->Set(env->context(), env->sink_string(), null).IsNothing() ||
+        source_v.As<Object>()
+            ->Set(env->context(), env->pipe_target_string(), null)
+            .IsNothing() ||
+        sink_v.As<Object>()
+            ->Set(env->context(), env->pipe_source_string(), null)
+            .IsNothing()) {
+      return;
+    }
   }, static_cast<void*>(this), object());
 }
 
@@ -107,17 +114,17 @@ uv_buf_t StreamPipe::ReadableListener::OnStreamAlloc(size_t suggested_size) {
   StreamPipe* pipe = ContainerOf(&StreamPipe::readable_listener_, this);
   size_t size = std::min(suggested_size, pipe->wanted_data_);
   CHECK_GT(size, 0);
-  return uv_buf_init(Malloc(size), size);
+  return pipe->env()->AllocateManaged(size).release();
 }
 
 void StreamPipe::ReadableListener::OnStreamRead(ssize_t nread,
-                                                const uv_buf_t& buf) {
+                                                const uv_buf_t& buf_) {
   StreamPipe* pipe = ContainerOf(&StreamPipe::readable_listener_, this);
+  AllocatedBuffer buf(pipe->env(), buf_);
   AsyncScope async_scope(pipe);
   if (nread < 0) {
     // EOF or error; stop reading and pass the error to the previous listener
     // (which might end up in JS).
-    free(buf.base);
     pipe->is_eof_ = true;
     stream()->ReadStop();
     CHECK_NOT_NULL(previous_listener_);
@@ -131,20 +138,20 @@ void StreamPipe::ReadableListener::OnStreamRead(ssize_t nread,
     return;
   }
 
-  pipe->ProcessData(nread, buf);
+  pipe->ProcessData(nread, std::move(buf));
 }
 
-void StreamPipe::ProcessData(size_t nread, const uv_buf_t& buf) {
-  uv_buf_t buffer = uv_buf_init(buf.base, nread);
+void StreamPipe::ProcessData(size_t nread, AllocatedBuffer&& buf) {
+  uv_buf_t buffer = uv_buf_init(buf.data(), nread);
   StreamWriteResult res = sink()->Write(&buffer, 1);
   if (!res.async) {
-    free(buf.base);
     writable_listener_.OnStreamAfterWrite(nullptr, res.err);
   } else {
     is_writing_ = true;
     is_reading_ = false;
-    res.wrap->SetAllocatedStorage(buf.base, buf.len);
-    source()->ReadStop();
+    res.wrap->SetAllocatedStorage(std::move(buf));
+    if (source() != nullptr)
+      source()->ReadStop();
   }
 }
 
@@ -183,6 +190,7 @@ void StreamPipe::WritableListener::OnStreamAfterShutdown(ShutdownWrap* w,
 
 void StreamPipe::ReadableListener::OnStreamDestroy() {
   StreamPipe* pipe = ContainerOf(&StreamPipe::readable_listener_, this);
+  pipe->source_destroyed_ = true;
   if (!pipe->is_eof_) {
     OnStreamRead(UV_EPIPE, uv_buf_init(nullptr, 0));
   }
@@ -190,6 +198,7 @@ void StreamPipe::ReadableListener::OnStreamDestroy() {
 
 void StreamPipe::WritableListener::OnStreamDestroy() {
   StreamPipe* pipe = ContainerOf(&StreamPipe::writable_listener_, this);
+  pipe->sink_destroyed_ = true;
   pipe->is_eof_ = true;
   pipe->Unpipe();
 }
@@ -243,7 +252,8 @@ namespace {
 
 void InitializeStreamPipe(Local<Object> target,
                           Local<Value> unused,
-                          Local<Context> context) {
+                          Local<Context> context,
+                          void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
   // Create FunctionTemplate for FileHandle::CloseReq
@@ -252,10 +262,13 @@ void InitializeStreamPipe(Local<Object> target,
       FIXED_ONE_BYTE_STRING(env->isolate(), "StreamPipe");
   env->SetProtoMethod(pipe, "unpipe", StreamPipe::Unpipe);
   env->SetProtoMethod(pipe, "start", StreamPipe::Start);
-  AsyncWrap::AddWrapMethods(env, pipe);
+  pipe->Inherit(AsyncWrap::GetConstructorTemplate(env));
   pipe->SetClassName(stream_pipe_string);
   pipe->InstanceTemplate()->SetInternalFieldCount(1);
-  target->Set(context, stream_pipe_string, pipe->GetFunction()).FromJust();
+  target
+      ->Set(context, stream_pipe_string,
+            pipe->GetFunction(context).ToLocalChecked())
+      .FromJust();
 }
 
 }  // anonymous namespace

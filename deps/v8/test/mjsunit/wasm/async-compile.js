@@ -11,12 +11,12 @@ function assertCompiles(buffer) {
   return assertPromiseResult(
       WebAssembly.compile(buffer),
       module => assertTrue(module instanceof WebAssembly.Module),
-      ex => assertUnreachable);
+      ex => assertUnreachable());
 }
 
 function assertCompileError(buffer) {
   return assertPromiseResult(
-      WebAssembly.compile(buffer), module => assertUnreachable,
+      WebAssembly.compile(buffer), module => assertUnreachable(),
       ex => assertTrue(ex instanceof WebAssembly.CompileError));
 }
 
@@ -69,4 +69,11 @@ assertPromiseResult(async function badFunctionInTheMiddle() {
   }
   let buffer = builder.toBuffer();
   await assertCompileError(buffer);
+}());
+
+assertPromiseResult(async function importWithoutCode() {
+  // Regression test for https://crbug.com/898310.
+  let builder = new WasmModuleBuilder();
+  builder.addImport('m', 'q', kSig_i_i);
+  await builder.asyncInstantiate({'m': {'q': i => i}});
 }());

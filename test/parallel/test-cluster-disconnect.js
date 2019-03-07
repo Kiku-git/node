@@ -52,7 +52,7 @@ if (cluster.isWorker) {
     });
   };
 
-  // test both servers created in the cluster
+  // Test both servers created in the cluster
   const testCluster = (cb) => {
     let done = 0;
     const portsArray = Array.from(serverPorts);
@@ -68,7 +68,7 @@ if (cluster.isWorker) {
     }
   };
 
-  // start two workers and execute callback when both is listening
+  // Start two workers and execute callback when both is listening
   const startCluster = (cb) => {
     const workers = 8;
     let online = 0;

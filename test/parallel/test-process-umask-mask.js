@@ -6,6 +6,9 @@
 const common = require('../common');
 const assert = require('assert');
 
+if (!common.isMainThread)
+  common.skip('Setting process.umask is not supported in Workers');
+
 let mask;
 
 if (common.isWindows) {

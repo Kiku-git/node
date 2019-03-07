@@ -1,11 +1,12 @@
 'use strict';
-const common = require('../common');
+require('../common');
+const ArrayStream = require('../common/arraystream');
 const assert = require('assert');
 const repl = require('repl');
 const vm = require('vm');
 
 // Create a dummy stream that does nothing.
-const stream = new common.ArrayStream();
+const stream = new ArrayStream();
 
 // Test context when useGlobal is false.
 {
@@ -50,7 +51,7 @@ const stream = new common.ArrayStream();
   // use the server to create a new context
   const context = server.createContext();
 
-  // ensure that creating a new context does not
+  // Ensure that creating a new context does not
   // have side effects on the server
   assert.ok(server.underscoreAssigned);
   assert.strictEqual(server.lines.length, 1);
@@ -62,7 +63,7 @@ const stream = new common.ArrayStream();
   assert.ok(!server.underscoreAssigned);
   assert.strictEqual(server.lines.length, 0);
 
-  // ensure that assigning to '_' in the new context
+  // Ensure that assigning to '_' in the new context
   // does not change the value in our server.
   assert.ok(!server.underscoreAssigned);
   vm.runInContext('_ = 1000;\n', context);

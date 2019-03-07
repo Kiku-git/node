@@ -10,6 +10,12 @@
 </tr>
 <tr>
 <td valign="top">
+<a href="#6.17.0">6.17.0</a><br/>
+<a href="#6.16.0">6.16.0</a><br/>
+<a href="#6.15.1">6.15.1</a><br/>
+<a href="#6.15.0">6.15.0</a><br/>
+<a href="#6.14.4">6.14.4</a><br/>
+<a href="#6.14.3">6.14.3</a><br/>
 <a href="#6.14.2">6.14.2</a><br/>
 <a href="#6.14.1">6.14.1</a><br/>
 <a href="#6.14.0">6.14.0</a><br/>
@@ -55,6 +61,7 @@
 </table>
 
 * Other Versions
+  * [11.x](CHANGELOG_V11.md)
   * [10.x](CHANGELOG_V10.md)
   * [9.x](CHANGELOG_V9.md)
   * [8.x](CHANGELOG_V8.md)
@@ -69,6 +76,166 @@
 *Note*: Node.js v6 is covered by the
 [Node.js Long Term Support Plan](https://github.com/nodejs/LTS) and
 will be supported actively until April 2018 and maintained until April 2019.
+
+<a id="6.17.0"></a>
+## 2018-02-28, Version 6.17.0 'Boron' (LTS), @rvagg
+
+This is a security release. All Node.js users should consult the security release summary at:
+
+  https://nodejs.org/en/blog/vulnerability/february-2019-security-releases/
+
+for details on patched vulnerabilities.
+
+Fixes for the following CVEs are included in this release:
+
+  * Node.js: Denial of Service with keep-alive HTTP connections (CVE-2019-5739)
+  * Node.js: Slowloris HTTP Denial of Service with keep-alive (CVE-2019-5737)
+  * OpenSSL: 0-byte record padding oracle (CVE-2019-1559)
+
+### Notable Changes
+
+* **deps**: OpenSSL has been upgraded to 1.0.2r which contains a fix for [CVE-2019-1559](https://www.openssl.org/news/secadv/20190226.txt). Under certain circumstances, a TLS server can be forced to respond differently to a client if a zero-byte record is received with an invalid _padding_ compared to a zero-byte record with an invalid _MAC_. This can be used as the basis of a padding oracle attack to decrypt data.
+* **http**:
+  - Backport `server.keepAliveTimeout` to prevent keep-alive HTTP and HTTPS connections remaining open and inactive for an extended period of time, leading to a potential Denial of Service (DoS). (CVE-2019-5739 / [Timur Shemsedinov](https://github.com/tshemsedinov), [Matteo Collina](https://twitter.com/matteocollina))
+  - Further prevention of "Slowloris" attacks on HTTP and HTTPS connections by consistently applying the receive timeout set by `server.headersTimeout` to connections in keep-alive mode. Reported by Marco Pracucci ([Voxnest](https://voxnest.com)). (CVE-2019-5737 / Matteo Collina)
+
+### Commits
+
+* [[`b282c68ce8`](https://github.com/nodejs/node/commit/b282c68ce8)] - **deps**: add -no\_rand\_screen to openssl s\_client (Shigeki Ohtsu) [nodejs/io.js#1836](https://github.com/nodejs/io.js/pull/1836)
+* [[`a80ef49dcf`](https://github.com/nodejs/node/commit/a80ef49dcf)] - **deps**: fix asm build error of openssl in x86\_win32 (Shigeki Ohtsu) [iojs/io.js#1389](https://github.com/iojs/io.js/pull/1389)
+* [[`1d3c412101`](https://github.com/nodejs/node/commit/1d3c412101)] - **deps**: fix openssl assembly error on ia32 win32 (Fedor Indutny) [iojs/io.js#1389](https://github.com/iojs/io.js/pull/1389)
+* [[`661fd61c3a`](https://github.com/nodejs/node/commit/661fd61c3a)] - **deps**: copy all openssl header files to include dir (Shigeki Ohtsu)
+* [[`da12284235`](https://github.com/nodejs/node/commit/da12284235)] - **deps**: upgrade openssl sources to 1.0.2r (Shigeki Ohtsu)
+* [[`b13b4a9ffb`](https://github.com/nodejs/node/commit/b13b4a9ffb)] - **http**: prevent slowloris with keepalive connections (Matteo Collina) [nodejs-private/node-private#162](https://github.com/nodejs-private/node-private/pull/162)
+* [[`e9ae4aaaad`](https://github.com/nodejs/node/commit/e9ae4aaaad)] - **http**: fix timeout reset after keep-alive timeout (Alexey Orlenko) [#13549](https://github.com/nodejs/node/pull/13549)
+* [[`f23b3b6bad`](https://github.com/nodejs/node/commit/f23b3b6bad)] - **(SEMVER-MINOR)** **http**: destroy sockets after keepAliveTimeout (Timur Shemsedinov) [#2534](https://github.com/nodejs/node/pull/2534)
+* [[`190894448b`](https://github.com/nodejs/node/commit/190894448b)] - **openssl**: fix keypress requirement in apps on win32 (Shigeki Ohtsu) [iojs/io.js#1389](https://github.com/iojs/io.js/pull/1389)
+* [[`06a208d316`](https://github.com/nodejs/node/commit/06a208d316)] - **test**: refactor test-http-server-keep-alive-timeout (realwakka) [#13448](https://github.com/nodejs/node/pull/13448)
+* [[`1c7fbdc53b`](https://github.com/nodejs/node/commit/1c7fbdc53b)] - **test**: improve test-https-server-keep-alive-timeout (Rich Trott) [#13312](https://github.com/nodejs/node/pull/13312)
+
+<a id="6.16.0"></a>
+## 2018-12-26, Version 6.16.0 'Boron' (LTS), @MylesBorins
+
+The 6.15.0 security release introduced some unexpected breakages on the 6.x release line.
+This is a special release to fix a regression in the HTTP binary upgrade response body and add
+a missing CLI flag to adjust the max header size of the http parser.
+
+### Notable Changes
+
+* **cli**:
+  - add --max-http-header-size flag (cjihrig) [#24811](https://github.com/nodejs/node/pull/24811)
+* **http**:
+  - add maxHeaderSize property (cjihrig) [#24860](https://github.com/nodejs/node/pull/24860)
+
+### Commits
+
+* [[`f233b160c9`](https://github.com/nodejs/node/commit/f233b160c9)] - **(SEMVER-MINOR)** **cli**: add --max-http-header-size flag (cjihrig) [#24811](https://github.com/nodejs/node/pull/24811)
+* [[`59f83d6896`](https://github.com/nodejs/node/commit/59f83d6896)] - **(SEMVER-MINOR)** **deps**: cherry-pick http\_parser\_set\_max\_header\_size (cjihrig) [#24811](https://github.com/nodejs/node/pull/24811)
+* [[`c0c4de71f0`](https://github.com/nodejs/node/commit/c0c4de71f0)] - **(SEMVER-MINOR)** **http**: add maxHeaderSize property (cjihrig) [#24860](https://github.com/nodejs/node/pull/24860)
+* [[`8a3e0c0697`](https://github.com/nodejs/node/commit/8a3e0c0697)] - **http**: fix regression of binary upgrade response body (Matteo Collina) [#25036](https://github.com/nodejs/node/pull/25036)
+
+<a id="6.15.1"></a>
+## 2018-12-03, Version 6.15.1 'Boron' (LTS), @rvagg
+
+### Notable Changes
+
+This is a patch release to address a bad backport of the fix for "Slowloris HTTP Denial of Service" (CVE-2018-12122). Node.js 6.15.0 misapplies the headers timeout to an entire keep-alive HTTP session, resulting in prematurely disconnected sockets.
+
+### Commits
+
+* [[`5d9005c359`](https://github.com/nodejs/node/commit/5d9005c359)] - **http**: fix backport of Slowloris headers (Matteo Collina) [#24796](https://github.com/nodejs/node/pull/24796)
+
+<a id="6.15.0"></a>
+## 2018-11-27, Version 6.15.0 'Boron' (LTS), @rvagg
+
+This is a security release. All Node.js users should consult the security release summary at:
+
+  https://nodejs.org/en/blog/vulnerability/november-2018-security-releases/
+
+for details on patched vulnerabilities.
+
+Fixes for the following CVEs are included in this release:
+
+  * Node.js: Debugger port 5858 listens on any interface by default (CVE-2018-12120)
+  * Node.js: Denial of Service with large HTTP headers (CVE-2018-12121)
+  * Node.js: Slowloris HTTP Denial of Service (CVE-2018-12122 / Node.js)
+  * Node.js: Hostname spoofing in URL parser for javascript protocol (CVE-2018-12123)
+  * Node.js: HTTP request splitting (CVE-2018-12116)
+  * OpenSSL: Timing vulnerability in DSA signature generation (CVE-2018-0734)
+  * OpenSSL: Microarchitecture timing vulnerability in ECC scalar multiplication (CVE-2018-5407)
+
+### Notable Changes
+
+* **debugger**: Backport of [nodejs/node#8106](https://github.com/nodejs/node/pull/8106) to prevent the debugger from listening on `0.0.0.0`. It now defaults to `127.0.0.1`. Reported by Ben Noordhuis. (CVE-2018-12120 / Ben Noordhuis).
+* **deps**: Upgrade to OpenSSL 1.0.2q, fixing CVE-2018-0734 and CVE-2018-5407
+* **http**:
+    * Headers received by HTTP servers must not exceed 8192 bytes in total to prevent possible Denial of Service attacks. Reported by Trevor Norris. (CVE-2018-12121 / Matteo Collina)
+    * A timeout of 40 seconds now applies to servers receiving HTTP headers. This value can be adjusted with `server.headersTimeout`. Where headers are not completely received within this period, the socket is destroyed on the next received chunk. In conjunction with `server.setTimeout()`, this aids in protecting against excessive resource retention and possible Denial of Service. Reported by Jan Maybach ([liebdich.com](https://liebdich.com)). (CVE-2018-12122 / Matteo Collina)
+    * Two-byte characters are now strictly disallowed for the `path` option in HTTP client requests. Paths containing characters outside of the range `\u0021` - `\u00ff` will now be rejected with a `TypeError`. This behavior can be reverted if necessary by supplying the `--security-revert=CVE-2018-12116` command line argument (this is not recommended). Reported as security concern for Node.js 6 and 8 by [Arkadiy Tetelman](https://twitter.com/arkadiyt) ([Lob](https://lob.com)), fixed by backporting a change by Benno Fünfstück applied to Node.js 10 and later. (CVE-2018-12116 / Matteo Collina)
+* **url**: Fix a bug that would allow a hostname being spoofed when parsing URLs with `url.parse()` with the `'javascript:'` protocol. Reported by [Martin Bajanik](https://twitter.com/_bayotop) ([Kentico](https://kenticocloud.com/)). (CVE-2018-12123 / Matteo Collina)
+
+### Commits
+
+* [[`4beba664e1`](https://github.com/nodejs/node/commit/4beba664e1)] - **deps**: add -no\_rand\_screen to openssl s\_client (Shigeki Ohtsu) [nodejs/node#1836](https://github.com/nodejs/node/pull/1836)
+* [[`049fe7978f`](https://github.com/nodejs/node/commit/049fe7978f)] - **deps**: fix asm build error of openssl in x86\_win32 (Shigeki Ohtsu) [nodejs/node#1389](https://github.com/nodejs/node/pull/1389)
+* [[`e9becec84d`](https://github.com/nodejs/node/commit/e9becec84d)] - **deps**: fix openssl assembly error on ia32 win32 (Fedor Indutny) [nodejs/node#1389](https://github.com/nodejs/node/pull/1389)
+* [[`78b3a5b2f7`](https://github.com/nodejs/node/commit/78b3a5b2f7)] - **deps**: copy all openssl header files to include dir (Sam Roberts) [#24530](https://github.com/nodejs/node/pull/24530)
+* [[`6120f2429e`](https://github.com/nodejs/node/commit/6120f2429e)] - **deps**: upgrade openssl sources to 1.0.2q (Sam Roberts) [#24530](https://github.com/nodejs/node/pull/24530)
+* [[`92231a56d9`](https://github.com/nodejs/node/commit/92231a56d9)] - **deps,http**: http\_parser set max header size to 8KB (Matteo Collina) [nodejs-private/node-private#143](https://github.com/nodejs-private/node-private/pull/143)
+* [[`dd20c0186f`](https://github.com/nodejs/node/commit/dd20c0186f)] - **(SEMVER-MINOR)** **http**: add --security-revert for CVE-2018-12116 (Matteo Collina) [nodejs-private/node-private#146](https://github.com/nodejs-private/node-private/pull/146)
+* [[`811b63c794`](https://github.com/nodejs/node/commit/811b63c794)] - **(SEMVER-MINOR)** **http**: disallow two-byte characters in URL path (Benno Fünfstück) [nodejs-private/node-private#146](https://github.com/nodejs-private/node-private/pull/146)
+* [[`618eebdd17`](https://github.com/nodejs/node/commit/618eebdd17)] - **(SEMVER-MINOR)** **http,https**: protect against slow headers attack (Matteo Collina) [nodejs-private/node-private#152](https://github.com/nodejs-private/node-private/pull/152)
+* [[`b78d403da3`](https://github.com/nodejs/node/commit/b78d403da3)] - **openssl**: fix keypress requirement in apps on win32 (Shigeki Ohtsu) [nodejs/node#1389](https://github.com/nodejs/node/pull/1389)
+* [[`35344e87bf`](https://github.com/nodejs/node/commit/35344e87bf)] - **src**: minor cleanup for node\_revert (James M Snell) [#14864](https://github.com/nodejs/node/pull/14864)
+* [[`a9791c9090`](https://github.com/nodejs/node/commit/a9791c9090)] - **src**: make debugger listen on 127.0.0.1 by default (Ben Noordhuis) [nodejs-private/node-private#148](https://github.com/nodejs-private/node-private/pull/148)
+* [[`9c268d0492`](https://github.com/nodejs/node/commit/9c268d0492)] - **url**: avoid hostname spoofing w/ javascript protocol (Matteo Collina) [nodejs-private/node-private#145](https://github.com/nodejs-private/node-private/pull/145)
+
+<a id="6.14.4"></a>
+## 2018-08-15, Version 6.14.4 'Boron' (LTS), @rvagg
+
+This is a security release. All Node.js users should consult the security release summary at:
+
+  https://nodejs.org/en/blog/vulnerability/august-2018-security-releases/
+
+for details on patched vulnerabilities.
+
+Fixes for the following CVEs are included in this release:
+
+  * CVE-2018-0732 (OpenSSL)
+  * CVE-2018-12115 (Node.js)
+
+### Notable Changes
+
+* **buffer**: Fix out-of-bounds (OOB) write in `Buffer.write()` for UCS-2 encoding (CVE-2018-12115)
+* **deps**: Upgrade to OpenSSL 1.0.2p, fixing:
+  * Client DoS due to large DH parameter (CVE-2018-0732)
+  * ECDSA key extraction via local side-channel (CVE not assigned)
+
+### Commits
+
+* [[`0052926476`](https://github.com/nodejs/node/commit/0052926476)] - **buffer**: avoid overrun on UCS-2 string write (Rod Vagg) [nodejs-private/node-private#138](https://github.com/nodejs-private/node-private/pull/138)
+* [[`dbe6551b89`](https://github.com/nodejs/node/commit/dbe6551b89)] - **deps**: add -no\_rand\_screen to openssl s\_client (Shigeki Ohtsu) [#1836](https://github.com/nodejs/node/pull/1836)
+* [[`7829bbcacb`](https://github.com/nodejs/node/commit/7829bbcacb)] - **deps**: fix asm build error of openssl in x86\_win32 (Shigeki Ohtsu) [#1389](https://github.com/nodejs/node/pull/1389)
+* [[`cddca629b5`](https://github.com/nodejs/node/commit/cddca629b5)] - **deps**: fix openssl assembly error on ia32 win32 (Fedor Indutny) [#1389](https://github.com/nodejs/node/pull/1389)
+* [[`e6014aed52`](https://github.com/nodejs/node/commit/e6014aed52)] - **deps**: copy all openssl header files to include dir (Shigeki Ohtsu) [#22320](https://github.com/nodejs/node/pull/22320)
+* [[`37ddce514d`](https://github.com/nodejs/node/commit/37ddce514d)] - **deps**: upgrade openssl sources to 1.0.2p (Shigeki Ohtsu) [#22320](https://github.com/nodejs/node/pull/22320)
+* [[`08a150fcca`](https://github.com/nodejs/node/commit/08a150fcca)] - **inspector**: don't bind to 0.0.0.0 by default (Ben Noordhuis) [#21376](https://github.com/nodejs/node/pull/21376)
+* [[`19b9d7fd77`](https://github.com/nodejs/node/commit/19b9d7fd77)] - **openssl**: fix keypress requirement in apps on win32 (Shigeki Ohtsu) [#1389](https://github.com/nodejs/node/pull/1389)
+* [[`7ccb0422fc`](https://github.com/nodejs/node/commit/7ccb0422fc)] - **test**: fix error messages for OpenSSL-1.0.2p (Shigeki Ohtsu) [#22320](https://github.com/nodejs/node/pull/22320)
+* [[`58b9497ca8`](https://github.com/nodejs/node/commit/58b9497ca8)] - **test**: update certificates and private keys (Fedor Indutny) [#22184](https://github.com/nodejs/node/pull/22184)
+* [[`9863e11ea8`](https://github.com/nodejs/node/commit/9863e11ea8)] - **test**: update keys/Makefile to clean and build all (Daniel Bevenius) [#19975](https://github.com/nodejs/node/pull/19975)
+
+<a id="6.14.3"></a>
+## 2018-06-12, Version 6.14.3 'Boron' (LTS), @evanlucas
+
+### Notable Changes
+
+* **buffer** (CVE-2018-7167): Fixes Denial of Service vulnerability where calling Buffer.fill() could hang
+
+### Commits
+
+* [[`7dbcfc6217`](https://github.com/nodejs/node/commit/7dbcfc6217)] - **src**: avoid hanging on Buffer#fill 0-length input (Сковорода Никита Андреевич) [nodejs-private/node-private#121](https://github.com/nodejs-private/node-private/pull/121)
+
 
 <a id="6.14.2"></a>
 ## 2018-04-30, Version 6.14.2 'Boron' (LTS), @MylesBorins
@@ -2406,16 +2573,16 @@ This LTS release comes with 168 commits. This includes 85 which are test related
 
 The SEMVER-MINOR changes include:
 
-*  **crypto**: allow adding extra certs to well-known CAs (Sam Roberts) [#9139](https://github.com/nodejs/node/pull/9139)
-*  **deps**: Upgrade INTL ICU to version 58 (Steven R. Loomis) [#9234](https://github.com/nodejs/node/pull/9234)
-*  **process**: add `process.memoryUsage.external` (Fedor Indutny) [#9587](https://github.com/nodejs/node/pull/9587)
-*  **src**: add wrapper for process.emitWarning() (Sam Roberts) [#9139](https://github.com/nodejs/node/pull/9139)
+* **crypto**: allow adding extra certs to well-known CAs (Sam Roberts) [#9139](https://github.com/nodejs/node/pull/9139)
+* **deps**: Upgrade INTL ICU to version 58 (Steven R. Loomis) [#9234](https://github.com/nodejs/node/pull/9234)
+* **process**: add `process.memoryUsage.external` (Fedor Indutny) [#9587](https://github.com/nodejs/node/pull/9587)
+* **src**: add wrapper for process.emitWarning() (Sam Roberts) [#9139](https://github.com/nodejs/node/pull/9139)
 
 
 Notable SEMVER-PATCH changes include:
 
-*  **fs**: cache non-symlinks in realpathSync. (Jeremy Yallop) [#10253](https://github.com/nodejs/node/pull/10253)
-*  **repl**: allow autocompletion for scoped packages (Evan Lucas) [#10296](https://github.com/nodejs/node/pull/10296)
+* **fs**: cache non-symlinks in realpathSync. (Jeremy Yallop) [#10253](https://github.com/nodejs/node/pull/10253)
+* **repl**: allow autocompletion for scoped packages (Evan Lucas) [#10296](https://github.com/nodejs/node/pull/10296)
 
 ### Commits
 

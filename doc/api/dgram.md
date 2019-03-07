@@ -1,4 +1,4 @@
-# UDP / Datagram Sockets
+# UDP/Datagram Sockets
 
 <!--introduced_in=v0.10.0-->
 
@@ -95,6 +95,24 @@ Tells the kernel to join a multicast group at the given `multicastAddress` and
 one interface and will add membership to it. To add membership to every
 available interface, call `addMembership` multiple times, once per interface.
 
+When sharing a UDP socket across multiple `cluster` workers, the
+`socket.addMembership()` function must be called only once or an
+`EADDRINUSE` error will occur:
+
+```js
+const cluster = require('cluster');
+const dgram = require('dgram');
+if (cluster.isMaster) {
+  cluster.fork(); // Works ok.
+  cluster.fork(); // Fails with EADDRINUSE.
+} else {
+  const s = dgram.createSocket('udp4');
+  s.bind(1234, () => {
+    s.addMembership('224.0.0.114');
+  });
+}
+```
+
 ### socket.address()
 <!-- YAML
 added: v0.1.99
@@ -166,6 +184,7 @@ added: v0.11.14
   * `port` {integer}
   * `address` {string}
   * `exclusive` {boolean}
+  * `fd` {integer}
 * `callback` {Function}
 
 For UDP sockets, causes the `dgram.Socket` to listen for datagram
@@ -177,12 +196,17 @@ system will attempt to listen on all addresses. Once binding is
 complete, a `'listening'` event is emitted and the optional `callback`
 function is called.
 
+The `options` object may contain a `fd` property. When a `fd` greater
+than `0` is set, it will wrap around an existing socket with the given
+file descriptor. In this case, the properties of `port` and `address`
+will be ignored.
+
 Note that specifying both a `'listening'` event listener and passing a
 `callback` to the `socket.bind()` method is not harmful but not very
 useful.
 
 The `options` object may contain an additional `exclusive` property that is
-use when using `dgram.Socket` objects with the [`cluster`] module. When
+used when using `dgram.Socket` objects with the [`cluster`] module. When
 `exclusive` is set to `false` (the default), cluster workers will use the same
 underlying socket handle allowing connection handling duties to be shared.
 When `exclusive` is `true`, however, the handle is not shared and attempted
@@ -208,6 +232,7 @@ socket.bind({
 <!-- YAML
 added: v0.1.99
 -->
+* `callback` {Function} Called when the socket has been closed.
 
 Close the underlying socket and stop listening for data on it. If a callback is
 provided, it is added as a listener for the [`'close'`][] event.
@@ -258,7 +283,7 @@ Calling `socket.ref()` multiples times will have no additional effect.
 The `socket.ref()` method returns a reference to the socket so calls can be
 chained.
 
-### socket.send(msg, [offset, length,] port [, address] [, callback])
+### socket.send(msg[, offset, length], port[, address][, callback])
 <!-- YAML
 added: v0.1.99
 changes:
@@ -394,7 +419,7 @@ added: v8.6.0
 
 * `multicastInterface` {string}
 
-*Note: All references to scope in this section are referring to
+*All references to scope in this section are referring to
 [IPv6 Zone Indices][], which are defined by [RFC 4007][]. In string form, an IP
 with a scope index is written as `'IP%scope'` where scope is an interface name
 or interface number.*
@@ -545,8 +570,7 @@ chained.
 ### Change to asynchronous `socket.bind()` behavior
 
 As of Node.js v0.10, [`dgram.Socket#bind()`][] changed to an asynchronous
-execution model. Legacy code that assumes synchronous behavior, as in the
-following example:
+execution model. Legacy code would use synchronous behavior:
 
 ```js
 const s = dgram.createSocket('udp4');
@@ -554,8 +578,8 @@ s.bind(1234);
 s.addMembership('224.0.0.114');
 ```
 
-Must be changed to pass a callback function to the [`dgram.Socket#bind()`][]
-function:
+Such legacy code would need to be changed to pass a callback function to the
+[`dgram.Socket#bind()`][] function:
 
 ```js
 const s = dgram.createSocket('udp4');
@@ -577,6 +601,9 @@ changes:
     pr-url: https://github.com/nodejs/node/pull/13623
     description: The `recvBufferSize` and `sendBufferSize` options are
                  supported now.
+  - version: v11.4.0
+    pr-url: https://github.com/nodejs/node/pull/23798
+    description: The `ipv6Only` option is supported.
 -->
 
 * `options` {Object} Available options are:
@@ -585,6 +612,9 @@ changes:
   * `reuseAddr` {boolean} When `true` [`socket.bind()`][] will reuse the
     address, even if another process has already bound a socket on it.
     **Default:** `false`.
+  * `ipv6Only` {boolean} Setting `ipv6Only` to `true` will
+    disable dual-stack support, i.e., binding to address `::` won't make
+    `0.0.0.0` be bound. **Default:** `false`.
   * `recvBufferSize` {number} - Sets the `SO_RCVBUF` socket value.
   * `sendBufferSize` {number} - Sets the `SO_SNDBUF` socket value.
   * `lookup` {Function} Custom lookup function. **Default:** [`dns.lookup()`][].
@@ -622,6 +652,7 @@ and `udp6` sockets). The bound address and port can be retrieved using
 [`'close'`]: #dgram_event_close
 [`Error`]: errors.html#errors_class_error
 [`EventEmitter`]: events.html
+[`System Error`]: errors.html#errors_class_systemerror
 [`close()`]: #dgram_socket_close_callback
 [`cluster`]: cluster.html
 [`dgram.Socket#bind()`]: #dgram_socket_bind_options_callback
@@ -630,7 +661,6 @@ and `udp6` sockets). The bound address and port can be retrieved using
 [`socket.address().address`]: #dgram_socket_address
 [`socket.address().port`]: #dgram_socket_address
 [`socket.bind()`]: #dgram_socket_bind_port_address_callback
-[`System Error`]: errors.html#errors_class_systemerror
-[byte length]: buffer.html#buffer_class_method_buffer_bytelength_string_encoding
 [IPv6 Zone Indices]: https://en.wikipedia.org/wiki/IPv6_address#Scoped_literal_IPv6_addresses
 [RFC 4007]: https://tools.ietf.org/html/rfc4007
+[byte length]: buffer.html#buffer_class_method_buffer_bytelength_string_encoding

@@ -210,7 +210,7 @@ const Transform = require('_stream_transform');
   // Verify asymmetric transform (compress)
   const pt = new Transform();
 
-  // each output is the first char of 3 consecutive chunks,
+  // Each output is the first char of 3 consecutive chunks,
   // or whatever's left.
   pt.state = '';
 
@@ -259,7 +259,7 @@ const Transform = require('_stream_transform');
   }));
 }
 
-// this tests for a stall when data is written to a full stream
+// This tests for a stall when data is written to a full stream
 // that has empty transforms.
 {
   // Verify complex transform behavior
@@ -321,11 +321,16 @@ const Transform = require('_stream_transform');
 
   pt.end();
 
-  assert.strictEqual(emits, 1);
-  assert.strictEqual(pt.read(5).toString(), 'l');
-  assert.strictEqual(pt.read(5), null);
+  // The next readable is emitted on the next tick.
+  assert.strictEqual(emits, 0);
 
-  assert.strictEqual(emits, 1);
+  process.on('nextTick', function() {
+    assert.strictEqual(emits, 1);
+    assert.strictEqual(pt.read(5).toString(), 'l');
+    assert.strictEqual(pt.read(5), null);
+
+    assert.strictEqual(emits, 1);
+  });
 }
 
 {
@@ -423,7 +428,7 @@ const Transform = require('_stream_transform');
   });
 
   jp.end();
-  // read one more time to get the 'end' event
+  // Read one more time to get the 'end' event
   jp.read();
 
   process.nextTick(common.mustCall(function() {
@@ -464,7 +469,7 @@ const Transform = require('_stream_transform');
   });
 
   js.end();
-  // read one more time to get the 'end' event
+  // Read one more time to get the 'end' event
   js.read();
 
   process.nextTick(common.mustCall(function() {

@@ -1,11 +1,11 @@
-// test the speed of .pipe() with JSStream wrapping for PassThrough streams
+// Test the speed of .pipe() with JSStream wrapping for PassThrough streams
 'use strict';
 
 const common = require('../common.js');
 const { PassThrough } = require('stream');
 
 const bench = common.createBenchmark(main, {
-  len: [102400, 1024 * 1024 * 16],
+  len: [64, 102400, 1024 * 1024 * 16],
   type: ['utf', 'asc', 'buf'],
   dur: [5],
 }, {
@@ -17,7 +17,7 @@ var encoding;
 
 function main({ dur, len, type }) {
   // Can only require internals inside main().
-  const JSStreamWrap = require('internal/wrap_js_stream');
+  const JSStreamWrap = require('internal/js_stream_socket');
 
   switch (type) {
     case 'buf':
@@ -44,7 +44,7 @@ function main({ dur, len, type }) {
   reader.pipe(fakeSocket);
   fakeSocket.pipe(writer);
 
-  setTimeout(function() {
+  setTimeout(() => {
     const bytes = writer.received;
     const gbits = (bytes * 8) / (1024 * 1024 * 1024);
     bench.end(gbits);

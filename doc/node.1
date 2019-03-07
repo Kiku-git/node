@@ -43,7 +43,7 @@
 .Op Ar arguments ...
 .
 .Nm node
-.Cm debug
+.Cm inspect
 .Op Fl e Ar string | Ar script.js | Fl | Ar <host>:<port>
 .Ar ...
 .
@@ -66,7 +66,7 @@ Alias for stdin, analogous to the use of - in other command-line utilities.
 The executed script is read from stdin, and remaining arguments are passed to the script.
 .
 .It Fl -
-Indicate the end of node options.
+Indicate the end of command-line options.
 Pass the rest of the arguments to the script.
 .Pp
 If no script filename or eval/print script is supplied prior to this, then
@@ -74,6 +74,45 @@ the next argument will be used as a script filename.
 .
 .It Fl -abort-on-uncaught-exception
 Aborting instead of exiting causes a core file to be generated for analysis.
+.
+.It Fl -completion-bash
+Print source-able bash completion script for Node.js.
+.
+.It Fl -diagnostic-report-directory
+Location at which the
+.Sy diagnostic report
+will be generated.
+.
+.It Fl -diagnostic-report-filename
+Name of the file to which the
+.Sy diagnostic report
+will be written.
+.
+.It Fl -diagnostic-report-on-fatalerror
+Enables the
+.Sy diagnostic report
+to be triggered on fatal errors (internal errors within the Node.js runtime such as out of memory) that leads to termination of the application, if
+.Sy --experimental-report
+is enabled. Useful to inspect various diagnostic data elements such as heap, stack, event loop state, resource consumption etc. to reason about the fatal error.
+.
+.It Fl -diagnostic-report-on-signal
+Enables
+.Sy diagnostic report
+to be generated upon receiving the specified (or predefined) signal to the running Node.js process, if
+.Sy --experimental-report
+is enabled. Default signal is SIGUSR2.
+.
+.It Fl -diagnostic-report-signal
+Sets or resets the signal for
+.Sy diagnostic report
+generation (not supported on Windows). Default signal is SIGUSR2.
+.
+.It Fl -diagnostic-report-uncaught-exception
+Enables
+.Sy diagnostic report
+to be generated on un-caught exceptions, if
+.Sy --experimental-report
+is enabled. Useful when inspecting JavaScript stack in conjunction with native stack and other runtime environment data.
 .
 .It Fl -enable-fips
 Enable FIPS-compliant crypto at startup.
@@ -83,10 +122,18 @@ Requires Node.js to be built with
 .It Fl -experimental-modules
 Enable experimental ES module support and caching modules.
 .
+.It Fl -experimental-policy
+Use the specified file as a security policy.
+.
 .It Fl -experimental-repl-await
 Enable experimental top-level
 .Sy await
 keyword support in REPL.
+.
+.It Fl -experimental-report
+Enable experimental
+.Sy diagnostic report
+feature.
 .
 .It Fl -experimental-vm-modules
 Enable experimental ES module support in VM module.
@@ -96,6 +143,15 @@ Force FIPS-compliant crypto on startup
 (Cannot be disabled from script code).
 Same requirements as
 .Fl -enable-fips .
+.
+.It Fl -frozen-intrinsics
+Enable experimental frozen intrinsics support.
+.
+.It Fl -http-parser Ns = Ns Ar library
+Chooses an HTTP parser library. Available values are
+.Sy llhttp
+or
+.Sy legacy .
 .
 .It Fl -icu-data-dir Ns = Ns Ar file
 Specify ICU data load path.
@@ -120,6 +176,15 @@ Default is
 .Pp
 V8 Inspector integration allows attaching Chrome DevTools and IDEs to Node.js instances for debugging and profiling.
 It uses the Chrome DevTools Protocol.
+.
+.It Fl -loader Ns = Ns Ar file
+Specify the
+.Ar file
+as a custom loader, to load
+.Fl -experimental-modules .
+.
+.It Fl -max-http-header-size Ns = Ns Ar size
+Specify the maximum size of HTTP headers in bytes. Defaults to 8KB.
 .
 .It Fl -napi-modules
 This option is a no-op.
@@ -164,9 +229,20 @@ instead of printing to stderr.
 .It Fl -throw-deprecation
 Throw errors for deprecations.
 .
+.It Fl -title Ns = Ns Ar title
+Specify process.title on startup.
+.
 .It Fl -tls-cipher-list Ns = Ns Ar list
 Specify an alternative default TLS cipher list.
 Requires Node.js to be built with crypto support. (Default)
+.
+.It Fl -tls-v1.0
+Enable TLSv1.0 and greater in default secureProtocol. Use for compatibility
+with old TLS clients or servers.
+.
+.It Fl -tls-v1.1
+Enable TLSv1.1 and greater in default secureProtocol. Use for compatibility
+with old TLS clients or servers.
 .
 .It Fl -trace-deprecation
 Print stack traces for deprecations.
@@ -212,16 +288,6 @@ and
 .
 .It Fl -v8-options
 Print V8 command-line options.
-.Pp
-Note: V8 options allow words to be separated by both dashes
-.Sy ( - )
-or underscores
-.Sy ( _ ) .
-.Pp
-For example,
-.Fl -stack-trace-limit
-is equivalent to
-.Fl -stack_trace_limit .
 .
 .It Fl -v8-pool-size Ns = Ns Ar num
 Set V8's thread pool size which will be used to allocate background jobs.
@@ -241,7 +307,7 @@ Evaluate
 as JavaScript.
 .
 .It Fl h , Fl -help
-Print node command line options.
+Print command-line options.
 The output of this option is less detailed than this document.
 .
 .It Fl i , Fl -interactive
@@ -258,7 +324,7 @@ Preload the specified
 at startup.
 Follows `require()`'s module resolution rules.
 .Ar module
-may be either a path to a file, or a node module name.
+may be either a path to a file, or a Node.js module name.
 .
 .It Fl v , Fl -version
 Print node's version.
@@ -269,6 +335,9 @@ Print node's version.
 .Bl -tag -width 6n
 .It Ev NODE_DEBUG Ar modules...
 Comma-separated list of core modules that should print debug information.
+.
+.It Ev NODE_DEBUG_NATIVE Ar modules...
+Comma-separated list of C++ core modules that should print debug information.
 .
 .It Ev NODE_DISABLE_COLORS
 When set to
@@ -287,6 +356,9 @@ If
 is missing or misformatted, a message will be emitted once using
 .Sy process.emitWarning() ,
 but any errors are otherwise ignored.
+.Pp
+This environment variable is ignored when `node` runs as setuid root or
+has Linux file capabilities set.
 .
 .It Ev NODE_ICU_DATA Ar file
 Data path for ICU (Intl object) data.
@@ -301,7 +373,7 @@ process warnings are silenced.
 A space-separated list of command-line
 .Ar options ,
 which are interpreted as if they had been specified on the command-line before the actual command (so they can be overridden).
-Node will exit with an error if an option that is not allowed in the environment is used, such as
+Node.js will exit with an error if an option that is not allowed in the environment is used, such as
 .Fl -print
 or a script file.
 .
@@ -314,6 +386,11 @@ prefixed to the module search path.
 When set to
 .Ar 1 ,
 emit pending deprecation warnings.
+.
+.It Ev NODE_PRESERVE_SYMLINKS
+When set to
+.Ar 1 ,
+the module loader preserves symbolic links when resolving and caching modules.
 .
 .It Ev NODE_REDIRECT_WARNINGS Ar file
 Write process warnings to the given
@@ -330,6 +407,15 @@ The default path is
 .Sy ~/.node_repl_history ,
 which is overridden by this variable.
 Setting the value to an empty string ("" or " ") will disable persistent REPL history.
+.
+.It Ev NODE_TLS_REJECT_UNAUTHORIZED
+When set to
+.Ar 0 ,
+TLS certificate validation is disabled.
+.
+.It Ev NODE_V8_COVERAGE Ar dir
+When set, Node.js writes JavaScript code coverage information to
+.Ar dir .
 .
 .It Ev OPENSSL_CONF Ar file
 Load an OpenSSL configuration file on startup.
@@ -349,8 +435,12 @@ is enabled, this overrides and sets OpenSSL's directory containing trusted certi
 If
 .Fl -use-openssl-ca
 is enabled, this overrides and sets OpenSSL's file containing trusted certificates.
-.El
 .
+.It Ev UV_THREADPOOL_SIZE Ar size
+Sets the number of threads used in libuv's threadpool to
+.Ar size .
+.
+.El
 .\"=====================================================================
 .Sh BUGS
 Bugs are tracked in GitHub Issues:
@@ -379,10 +469,6 @@ Documentation:
 .Pp
 GitHub repository & Issue Tracker:
 .Sy https://github.com/nodejs/node
-.
-.Pp
-Mailing list:
-.Sy http://groups.google.com/group/nodejs
 .
 .Pp
 IRC (general questions):

@@ -6,7 +6,8 @@ const http = require('http');
 const fixtures = require('../common/fixtures');
 const { spawn } = require('child_process');
 const { parse: parseURL } = require('url');
-const { getURLFromFilePath } = require('internal/url');
+const { pathToFileURL } = require('internal/url');
+const { EventEmitter } = require('events');
 
 const _MAINSCRIPT = fixtures.path('loop.js');
 const DEBUG = false;
@@ -24,6 +25,7 @@ function spawnChildProcess(inspectorFlags, scriptContents, scriptFile) {
   const handler = tearDown.bind(null, child);
   process.on('exit', handler);
   process.on('uncaughtException', handler);
+  common.disableCrashOnUnhandledRejection();
   process.on('unhandledRejection', handler);
   process.on('SIGINT', handler);
 
@@ -61,7 +63,7 @@ function parseWSFrame(buffer) {
   if (buffer[0] === 0x88 && buffer[1] === 0x00) {
     return { length: 2, message, closed: true };
   }
-  assert.strictEqual(0x81, buffer[0]);
+  assert.strictEqual(buffer[0], 0x81);
   let dataLen = 0x7F & buffer[1];
   let bodyOffset = 2;
   if (buffer.length < bodyOffset + dataLen)
@@ -172,7 +174,7 @@ class InspectorSession {
         const { scriptId, url } = message.params;
         this._scriptsIdsByUrl.set(scriptId, url);
         const fileUrl = url.startsWith('file:') ?
-          url : getURLFromFilePath(url).toString();
+          url : pathToFileURL(url).toString();
         if (fileUrl === this.scriptURL().toString()) {
           this.mainScriptId = scriptId;
         }
@@ -249,7 +251,7 @@ class InspectorSession {
       assert.strictEqual(scriptPath.toString(),
                          expectedScriptPath.toString(),
                          `${scriptPath} !== ${expectedScriptPath}`);
-      assert.strictEqual(line, location.lineNumber);
+      assert.strictEqual(location.lineNumber, line);
       return true;
     }
   }
@@ -307,14 +309,16 @@ class InspectorSession {
   }
 
   scriptURL() {
-    return getURLFromFilePath(this.scriptPath());
+    return pathToFileURL(this.scriptPath());
   }
 }
 
-class NodeInstance {
-  constructor(inspectorFlags = ['--inspect-brk=0'],
+class NodeInstance extends EventEmitter {
+  constructor(inspectorFlags = ['--inspect-brk=0', '--expose-internals'],
               scriptContents = '',
               scriptFile = _MAINSCRIPT) {
+    super();
+
     this._scriptPath = scriptFile;
     this._script = scriptFile ? null : scriptContents;
     this._portCallback = null;
@@ -326,7 +330,10 @@ class NodeInstance {
     this._unprocessedStderrLines = [];
 
     this._process.stdout.on('data', makeBufferingDataCallback(
-      (line) => console.log('[out]', line)));
+      (line) => {
+        this.emit('stdout', line);
+        console.log('[out]', line);
+      }));
 
     this._process.stderr.on('data', makeBufferingDataCallback(
       (message) => this.onStderrLine(message)));
@@ -341,7 +348,8 @@ class NodeInstance {
 
   static async startViaSignal(scriptContents) {
     const instance = new NodeInstance(
-      [], `${scriptContents}\nprocess._rawDebug('started');`, undefined);
+      ['--expose-internals'],
+      `${scriptContents}\nprocess._rawDebug('started');`, undefined);
     const msg = 'Timed out waiting for process to start';
     while (await fires(instance.nextStderrString(), msg, TIMEOUT) !==
              'started') {}
@@ -409,7 +417,7 @@ class NodeInstance {
   async connectInspectorSession() {
     console.log('[test]', 'Connecting to a child Node process');
     const upgradeRequest = await this.sendUpgradeRequest();
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       upgradeRequest
         .on('upgrade',
             (message, socket) => resolve(new InspectorSession(socket, this)))
@@ -420,7 +428,7 @@ class NodeInstance {
   async expectConnectionDeclined() {
     console.log('[test]', 'Checking upgrade is not possible');
     const upgradeRequest = await this.sendUpgradeRequest();
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       upgradeRequest
           .on('upgrade', common.mustNotCall('Upgrade was received'))
           .on('response', (response) =>

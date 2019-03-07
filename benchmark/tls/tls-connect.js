@@ -46,9 +46,9 @@ function makeConnection() {
     port: common.PORT,
     rejectUnauthorized: false
   };
-  var conn = tls.connect(options, function() {
+  var conn = tls.connect(options, () => {
     clientConn++;
-    conn.on('error', function(er) {
+    conn.on('error', (er) => {
       console.error('client error', er);
       throw er;
     });
@@ -59,7 +59,7 @@ function makeConnection() {
 
 function done() {
   running = false;
-  // it's only an established connection if they both saw it.
+  // It's only an established connection if they both saw it.
   // because we destroy the server somewhat abruptly, these
   // don't always match.  Generally, serverConn will be
   // the smaller number, but take the min just to be sure.

@@ -47,6 +47,7 @@ class JSInliner final : public AdvancedReducer {
   SimplifiedOperatorBuilder* simplified() const;
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
+  Isolate* isolate() const { return jsgraph_->isolate(); }
   Handle<Context> native_context() const;
 
   Zone* const local_zone_;
@@ -62,7 +63,8 @@ class JSInliner final : public AdvancedReducer {
   Node* CreateArtificialFrameState(Node* node, Node* outer_frame_state,
                                    int parameter_count, BailoutId bailout_id,
                                    FrameStateType frame_state_type,
-                                   Handle<SharedFunctionInfo> shared);
+                                   Handle<SharedFunctionInfo> shared,
+                                   Node* context = nullptr);
 
   Reduction InlineCall(Node* call, Node* new_target, Node* context,
                        Node* frame_state, Node* start, Node* end,

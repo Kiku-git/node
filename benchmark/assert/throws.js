@@ -4,13 +4,8 @@ const common = require('../common.js');
 const { throws, doesNotThrow } = require('assert');
 
 const bench = common.createBenchmark(main, {
-  n: [1e6],
-  method: [
-    'doesNotThrow',
-    'throws',
-    'throws_TypeError',
-    'throws_RegExp'
-  ]
+  n: [1e4],
+  method: [ 'doesNotThrow', 'throws_TypeError', 'throws_RegExp' ],
 });
 
 function main({ n, method }) {
@@ -27,13 +22,6 @@ function main({ n, method }) {
       bench.start();
       for (i = 0; i < n; ++i) {
         doesNotThrow(doNotThrowError);
-      }
-      bench.end(n);
-      break;
-    case 'throws':
-      bench.start();
-      for (i = 0; i < n; ++i) {
-        throws(throwError);
       }
       bench.end(n);
       break;

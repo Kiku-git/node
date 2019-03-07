@@ -1,3 +1,4 @@
+from __future__ import print_function
 # Copyright 2008 the V8 project authors. All rights reserved.
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -30,6 +31,16 @@ import os
 from os.path import join, exists, basename, isdir
 import re
 
+try:
+    reduce          # Python 2
+except NameError:   # Python 3
+    from functools import reduce
+
+try:
+    xrange          # Python 2
+except NameError:
+    xrange = range  # Python 3
+
 FLAGS_PATTERN = re.compile(r"//\s+Flags:(.*)")
 
 class MessageTestCase(test.TestCase):
@@ -48,7 +59,7 @@ class MessageTestCase(test.TestCase):
     else: return str.startswith('==') or str.startswith('**')
 
   def IsFailureOutput(self, output):
-    f = file(self.expected)
+    f = open(self.expected)
     # Skip initial '#' comment and spaces
     #for line in f:
     #  if (not line.startswith('#')) and (not line.strip()):
@@ -67,22 +78,22 @@ class MessageTestCase(test.TestCase):
     raw_lines = (output.stdout + output.stderr).split('\n')
     outlines = [ s for s in raw_lines if not self.IgnoreLine(s) ]
     if len(outlines) != len(patterns):
-      print "length differs."
-      print "expect=%d" % len(patterns)
-      print "actual=%d" % len(outlines)
-      print "patterns:"
+      print("length differs.")
+      print("expect=%d" % len(patterns))
+      print("actual=%d" % len(outlines))
+      print("patterns:")
       for i in xrange(len(patterns)):
-        print "pattern = %s" % patterns[i]
-      print "outlines:"
+        print("pattern = %s" % patterns[i])
+      print("outlines:")
       for i in xrange(len(outlines)):
-        print "outline = %s" % outlines[i]
+        print("outline = %s" % outlines[i])
       return True
     for i in xrange(len(patterns)):
       if not re.match(patterns[i], outlines[i]):
-        print "match failed"
-        print "line=%d" % i
-        print "expect=%s" % patterns[i]
-        print "actual=%s" % outlines[i]
+        print("match failed")
+        print("line=%d" % i)
+        print("expect=%s" % patterns[i])
+        print("actual=%s" % outlines[i])
         return True
     return False
 
@@ -108,10 +119,6 @@ class MessageTestCase(test.TestCase):
 
 
 class MessageTestConfiguration(test.TestConfiguration):
-
-  def __init__(self, context, root):
-    super(MessageTestConfiguration, self).__init__(context, root)
-
   def Ls(self, path):
     if isdir(path):
       return [f for f in os.listdir(path)
@@ -135,11 +142,6 @@ class MessageTestConfiguration(test.TestConfiguration):
   def GetBuildRequirements(self):
     return ['sample', 'sample=shell']
 
-  def GetTestStatus(self, sections, defs):
-    status_file = join(self.root, 'message.status')
-    if exists(status_file):
-      test.ReadConfigurationInto(status_file, sections, defs)
-
 
 def GetConfiguration(context, root):
-  return MessageTestConfiguration(context, root)
+  return MessageTestConfiguration(context, root, 'message')

@@ -29,9 +29,18 @@
 
 {
   'variables': {
-    'variables': {
-      'v8_target_arch%': '<(target_arch)',
-    },
+    'v8_target_arch%': '<(target_arch)',
+
+    'v8_current_cpu%': '<(target_arch)',
+
+    # Emulate GN variables
+    'conditions': [
+      ['OS=="android"', { # GYP reverts OS to linux so use `-D OS=android`
+        'is_android': 1,
+      }, {
+        'is_android': 0,
+      }],
+    ],
 
     # Allows the embedder to add a custom suffix to the version string.
     'v8_embedder_string%': '',
@@ -95,7 +104,29 @@
 
     # Enable mitigations for executing untrusted code.
     'v8_untrusted_code_mitigations%': 'true',
+
+    # Currently set for node by common.gypi, avoiding default because of gyp file bug.
+    # Should be turned on only for debugging.
+    #'v8_enable_handle_zapping%': 0,
+
+    'v8_enable_pointer_compression%': 'false',
+
+    'v8_enable_embedded_builtins%': 'true',
+
+    'v8_perf_prof_unwinding_info%': 0,
+
+    'v8_enable_fast_mksnapshot%': 0,
   },
+
+  'conditions': [
+    # V8's predicate inverted since we default to 'true' and set 'false' for unsupported cases.
+    #      v8_use_snapshot         &&  v8_current_cpu != "x86" &&    !is_aix &&  (  !is_win || is_clang)
+    ['not (v8_use_snapshot=="true" and v8_target_arch !="ia32" and OS!="aix" and (OS!="win" or clang==1))', {
+      'variables': {
+        'v8_enable_embedded_builtins': 'false',
+      }
+    }],
+  ],
   'target_defaults': {
     'conditions': [
       ['v8_embedder_string!=""', {
@@ -105,7 +136,7 @@
         'defines': ['ENABLE_DISASSEMBLER',],
       }],
       ['v8_promise_internal_field_count!=0', {
-        'defines': ['V8_PROMISE_INTERNAL_FIELD_COUNT','v8_promise_internal_field_count'],
+        'defines': ['V8_PROMISE_INTERNAL_FIELD_COUNT=<(v8_promise_internal_field_count)'],
       }],
       ['v8_enable_gdbjit==1', {
         'defines': ['ENABLE_GDB_JIT_INTERFACE',],
@@ -133,9 +164,13 @@
       }],
       ['v8_deprecation_warnings==1', {
         'defines': ['V8_DEPRECATION_WARNINGS',],
+      },{
+        'defines!': ['V8_DEPRECATION_WARNINGS',],
       }],
       ['v8_imminent_deprecation_warnings==1', {
         'defines': ['V8_IMMINENT_DEPRECATION_WARNINGS',],
+      },{
+        'defines!': ['V8_IMMINENT_DEPRECATION_WARNINGS',],
       }],
       ['v8_enable_i18n_support==1', {
         'defines': ['V8_INTL_SUPPORT',],
@@ -155,30 +190,20 @@
       ['v8_untrusted_code_mitigations=="false"', {
         'defines': ['DISABLE_UNTRUSTED_CODE_MITIGATIONS',],
       }],
-    ],  # conditions
-    'configurations': {
-      'DebugBaseCommon': {
-        'abstract': 1,
-        'variables': {
-          'v8_enable_handle_zapping%': 1,
-        },
-        'conditions': [
-          ['v8_enable_handle_zapping==1', {
-            'defines': ['ENABLE_HANDLE_ZAPPING',],
-          }],
+      # Refs: https://github.com/nodejs/node/pull/23801
+      # ['v8_enable_handle_zapping==1', {
+      #  'defines': ['ENABLE_HANDLE_ZAPPING',],
+      # }],
+      ['v8_enable_pointer_compression=="true"', {
+        'defines': ['V8_COMPRESS_POINTERS',],
+      }],
+      ['v8_enable_embedded_builtins=="true"', {
+        'defines': [
+          'V8_EMBEDDED_BUILTINS',
+          'V8_EMBEDDED_BYTECODE_HANDLERS',
         ],
-      },  # Debug
-      'Release': {
-        'variables': {
-          'v8_enable_handle_zapping%': 1,
-        },
-        'conditions': [
-          ['v8_enable_handle_zapping==1', {
-            'defines': ['ENABLE_HANDLE_ZAPPING',],
-          }],
-        ],  # conditions
-      },  # Release
-    },  # configurations
+      }],
+    ],  # conditions
     'defines': [
       'V8_GYP_BUILD',
       'V8_TYPED_ARRAY_MAX_SIZE_IN_HEAP=<(v8_typed_array_max_size_in_heap)',

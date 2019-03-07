@@ -19,14 +19,17 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "string_bytes.h"
+#include <cstdio>
+#include <sstream>
 #include "node_buffer.h"
+#include "node_errors.h"
 #include "node_internals.h"
+#include "string_bytes.h"
 #include "uv.h"
-#include <stdio.h>
 
 namespace node {
 
+using v8::ArrayBufferView;
 using v8::Isolate;
 using v8::Local;
 using v8::String;
@@ -36,15 +39,17 @@ template <typename T>
 static void MakeUtf8String(Isolate* isolate,
                            Local<Value> value,
                            T* target) {
-  Local<String> string = value->ToString(isolate);
-  if (string.IsEmpty())
-    return;
+  Local<String> string;
+  if (!value->ToString(isolate->GetCurrentContext()).ToLocal(&string)) return;
 
-  const size_t storage = StringBytes::StorageSize(isolate, string, UTF8) + 1;
+  size_t storage;
+  if (!StringBytes::StorageSize(isolate, string, UTF8).To(&storage)) return;
+  storage += 1;
   target->AllocateSufficientStorage(storage);
   const int flags =
       String::NO_NULL_TERMINATION | String::REPLACE_INVALID_UTF8;
-  const int length = string->WriteUtf8(target->out(), storage, 0, flags);
+  const int length =
+      string->WriteUtf8(isolate, target->out(), storage, nullptr, flags);
   target->SetLengthAndZeroTerminate(length);
 }
 
@@ -61,16 +66,15 @@ TwoByteValue::TwoByteValue(Isolate* isolate, Local<Value> value) {
     return;
   }
 
-  Local<String> string = value->ToString(isolate);
-  if (string.IsEmpty())
-    return;
+  Local<String> string;
+  if (!value->ToString(isolate->GetCurrentContext()).ToLocal(&string)) return;
 
   // Allocate enough space to include the null terminator
   const size_t storage = string->Length() + 1;
   AllocateSufficientStorage(storage);
 
   const int flags = String::NO_NULL_TERMINATION;
-  const int length = string->Write(out(), 0, storage, flags);
+  const int length = string->Write(isolate, out(), 0, storage, flags);
   SetLengthAndZeroTerminate(length);
 }
 
@@ -86,11 +90,11 @@ BufferValue::BufferValue(Isolate* isolate, Local<Value> value) {
 
   if (value->IsString()) {
     MakeUtf8String(isolate, value, this);
-  } else if (Buffer::HasInstance(value)) {
-    const size_t len = Buffer::Length(value);
+  } else if (value->IsArrayBufferView()) {
+    const size_t len = value.As<ArrayBufferView>()->ByteLength();
     // Leave place for the terminating '\0' byte.
     AllocateSufficientStorage(len + 1);
-    memcpy(out(), Buffer::Data(value), len);
+    value.As<ArrayBufferView>()->CopyContents(out(), len);
     SetLengthAndZeroTerminate(len);
   } else {
     Invalidate();
@@ -98,8 +102,8 @@ BufferValue::BufferValue(Isolate* isolate, Local<Value> value) {
 }
 
 void LowMemoryNotification() {
-  if (v8_initialized) {
-    auto isolate = v8::Isolate::GetCurrent();
+  if (per_process::v8_initialized) {
+    auto isolate = Isolate::GetCurrent();
     if (isolate != nullptr) {
       isolate->LowMemoryNotification();
     }
@@ -113,9 +117,27 @@ std::string GetHumanReadableProcessName() {
 }
 
 void GetHumanReadableProcessName(char (*name)[1024]) {
-  char title[1024] = "Node.js";
+  // Leave room after title for pid, which can be up to 20 digits for 64 bit.
+  char title[1000] = "Node.js";
   uv_get_process_title(title, sizeof(title));
-  snprintf(*name, sizeof(*name), "%s[%u]", title, uv_os_getpid());
+  snprintf(*name, sizeof(*name), "%s[%d]", title, uv_os_getpid());
+}
+
+std::vector<std::string> SplitString(const std::string& in, char delim) {
+  std::vector<std::string> out;
+  if (in.empty())
+    return out;
+  std::istringstream in_stream(in);
+  while (in_stream.good()) {
+    std::string item;
+    std::getline(in_stream, item, delim);
+    out.emplace_back(std::move(item));
+  }
+  return out;
+}
+
+void ThrowErrStringTooLong(Isolate* isolate) {
+  isolate->ThrowException(ERR_STRING_TOO_LONG(isolate));
 }
 
 }  // namespace node

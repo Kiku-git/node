@@ -4,7 +4,9 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "async_wrap.h"
-#include "env.h"
+#include "env-inl.h"
+
+#include <sstream>
 #include <string>
 
 // Use FORCE_INLINE on functions that have a debug-category-enabled check first
@@ -67,9 +69,7 @@ template <typename... Args>
 inline void FORCE_INLINE Debug(AsyncWrap* async_wrap,
                                const char* format,
                                Args&&... args) {
-#ifdef DEBUG
-  CHECK_NOT_NULL(async_wrap);
-#endif
+  DCHECK_NOT_NULL(async_wrap);
   DebugCategory cat =
       static_cast<DebugCategory>(async_wrap->provider_type());
   if (!UNLIKELY(async_wrap->env()->debug_enabled(cat)))
@@ -84,6 +84,42 @@ inline void FORCE_INLINE Debug(AsyncWrap* async_wrap,
   Debug(async_wrap, format.c_str(), std::forward<Args>(args)...);
 }
 
+// Debug helper for inspecting the currently running `node` executable.
+class NativeSymbolDebuggingContext {
+ public:
+  static std::unique_ptr<NativeSymbolDebuggingContext> New();
+
+  class SymbolInfo {
+   public:
+    std::string name;
+    std::string filename;
+    size_t line = 0;
+    size_t dis = 0;
+
+    std::string Display() const;
+  };
+
+  NativeSymbolDebuggingContext() = default;
+  virtual ~NativeSymbolDebuggingContext() {}
+
+  virtual SymbolInfo LookupSymbol(void* address) { return {}; }
+  virtual bool IsMapped(void* address) { return false; }
+  virtual int GetStackTrace(void** frames, int count) { return 0; }
+
+  NativeSymbolDebuggingContext(const NativeSymbolDebuggingContext&) = delete;
+  NativeSymbolDebuggingContext(NativeSymbolDebuggingContext&&) = delete;
+  NativeSymbolDebuggingContext operator=(NativeSymbolDebuggingContext&)
+    = delete;
+  NativeSymbolDebuggingContext operator=(NativeSymbolDebuggingContext&&)
+    = delete;
+  static std::vector<std::string> GetLoadedLibraries();
+};
+
+// Variant of `uv_loop_close` that tries to be as helpful as possible
+// about giving information on currently existing handles, if there are any,
+// but still aborts the process.
+void CheckedUvLoopClose(uv_loop_t* loop);
+void PrintLibuvHandleInformation(uv_loop_t* loop, FILE* stream);
 
 }  // namespace node
 

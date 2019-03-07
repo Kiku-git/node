@@ -21,12 +21,12 @@ class CallHelper {
       : csig_(csig), isolate_(isolate) {
     USE(isolate_);
   }
-  virtual ~CallHelper() {}
+  virtual ~CallHelper() = default;
 
   template <typename... Params>
   R Call(Params... args) {
     CSignature::VerifyParams<Params...>(csig_);
-    byte* entry = Generate();
+    Address entry = Generate();
     auto fn = GeneratedCode<R, Params...>::FromAddress(isolate_, entry);
     return fn.Call(args...);
   }
@@ -34,7 +34,7 @@ class CallHelper {
  protected:
   MachineSignature* csig_;
 
-  virtual byte* Generate() = 0;
+  virtual Address Generate() = 0;
 
  private:
   Isolate* isolate_;
@@ -46,9 +46,9 @@ class CodeRunner : public CallHelper<T> {
  public:
   CodeRunner(Isolate* isolate, Handle<Code> code, MachineSignature* csig)
       : CallHelper<T>(isolate, csig), code_(code) {}
-  virtual ~CodeRunner() {}
+  ~CodeRunner() override = default;
 
-  virtual byte* Generate() { return code_->entry(); }
+  Address Generate() override { return code_->entry(); }
 
  private:
   Handle<Code> code_;

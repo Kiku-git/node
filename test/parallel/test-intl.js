@@ -99,20 +99,30 @@ if (!common.hasIntl) {
     assert.strictEqual(localeString, '1/1/1970, 12:00:00 AM');
   }
   // number format
-  const numberFormat = new Intl.NumberFormat(['en']).format(12345.67890);
-  assert.strictEqual(numberFormat, '12,345.679');
+  {
+    const numberFormat = new Intl.NumberFormat(['en']).format(12345.67890);
+    assert.strictEqual(numberFormat, '12,345.679');
+  }
+  // Significant Digits
+  {
+    const loc = ['en-US'];
+    const opts = { maximumSignificantDigits: 4 };
+    const num = 10.001;
+    const numberFormat = new Intl.NumberFormat(loc, opts).format(num);
+    assert.strictEqual(numberFormat, '10');
+  }
 
   const collOpts = { sensitivity: 'base', ignorePunctuation: true };
   const coll = new Intl.Collator(['en'], collOpts);
 
-  assert.strictEqual(coll.compare('blackbird', 'black-bird'), 0,
-                     'ignore punctuation failed');
-  assert.strictEqual(coll.compare('blackbird', 'red-bird'), -1,
-                     'compare less failed');
-  assert.strictEqual(coll.compare('bluebird', 'blackbird'), 1,
-                     'compare greater failed');
-  assert.strictEqual(coll.compare('Bluebird', 'bluebird'), 0,
-                     'ignore case failed');
-  assert.strictEqual(coll.compare('\ufb03', 'ffi'), 0,
-                     'ffi ligature (contraction) failed');
+  // ignore punctuation
+  assert.strictEqual(coll.compare('blackbird', 'black-bird'), 0);
+  // compare less
+  assert.strictEqual(coll.compare('blackbird', 'red-bird'), -1);
+  // compare greater
+  assert.strictEqual(coll.compare('bluebird', 'blackbird'), 1);
+  // ignore case
+  assert.strictEqual(coll.compare('Bluebird', 'bluebird'), 0);
+  // ffi ligature (contraction)
+  assert.strictEqual(coll.compare('\ufb03', 'ffi'), 0);
 }

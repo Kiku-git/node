@@ -94,8 +94,24 @@ common.expectsError(
 }
 
 {
-  const buffer = new Uint8Array(Buffer.from('abcd'));
+  const arrayBufferViewStr = 'abcd';
+  const inputBuffer = Buffer.from(arrayBufferViewStr.repeat(8), 'utf8');
+  for (const expectView of common.getArrayBufferViews(inputBuffer)) {
+    const out = {};
+    tls.convertALPNProtocols(expectView, out);
+    assert(out.ALPNProtocols.equals(Buffer.from(expectView)));
+  }
+}
+
+{
+  const protocols = [(new String('a')).repeat(500)];
   const out = {};
-  tls.convertALPNProtocols(buffer, out);
-  assert(out.ALPNProtocols.equals(Buffer.from('abcd')));
+  common.expectsError(
+    () => tls.convertALPNProtocols(protocols, out),
+    {
+      code: 'ERR_OUT_OF_RANGE',
+      message: 'The byte length of the protocol at index 0 exceeds the ' +
+        'maximum length. It must be <= 255. Received 500'
+    }
+  );
 }

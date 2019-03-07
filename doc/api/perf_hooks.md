@@ -219,26 +219,6 @@ The high resolution millisecond timestamp at which the Node.js process
 completed bootstrapping. If bootstrapping has not yet finished, the property
 has the value of -1.
 
-### performanceNodeTiming.clusterSetupEnd
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which cluster processing ended. If
-cluster processing has not yet ended, the property has the value of -1.
-
-### performanceNodeTiming.clusterSetupStart
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which cluster processing started.
-If cluster processing has not yet started, the property has the value of -1.
-
 ### performanceNodeTiming.loopExit
 <!-- YAML
 added: v8.5.0
@@ -261,24 +241,6 @@ The high resolution millisecond timestamp at which the Node.js event loop
 started. If the event loop has not yet started (e.g., in the first tick of the
 main script), the property has the value of -1.
 
-### performanceNodeTiming.moduleLoadEnd
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which main module load ended.
-
-### performanceNodeTiming.moduleLoadStart
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which main module load started.
-
 ### performanceNodeTiming.nodeStart
 <!-- YAML
 added: v8.5.0
@@ -288,46 +250,6 @@ added: v8.5.0
 
 The high resolution millisecond timestamp at which the Node.js process was
 initialized.
-
-### performanceNodeTiming.preloadModuleLoadEnd
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which preload module load ended.
-
-### performanceNodeTiming.preloadModuleLoadStart
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which preload module load started.
-
-### performanceNodeTiming.thirdPartyMainEnd
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which third\_party\_main
-processing ended. If third\_party\_main processing has not yet ended, the
-property has the value of -1.
-
-### performanceNodeTiming.thirdPartyMainStart
-<!-- YAML
-added: v8.5.0
--->
-
-* {number}
-
-The high resolution millisecond timestamp at which third\_party\_main
-processing started. If third\_party\_main processing has not yet started, the
-property has the value of -1.
 
 ### performanceNodeTiming.v8Start
 <!-- YAML
@@ -409,7 +331,7 @@ const {
 } = require('perf_hooks');
 
 const obs = new PerformanceObserver((list, observer) => {
-  // called three times synchronously. list contains one item
+  // Called three times synchronously. list contains one item
 });
 obs.observe({ entryTypes: ['mark'] });
 
@@ -475,6 +397,138 @@ added: v8.5.0
 Returns a list of `PerformanceEntry` objects in chronological order
 with respect to `performanceEntry.startTime` whose `performanceEntry.entryType`
 is equal to `type`.
+
+## perf_hooks.monitorEventLoopDelay([options])
+<!-- YAML
+added: v11.10.0
+-->
+
+* `options` {Object}
+  * `resolution` {number} The sampling rate in milliseconds. Must be greater
+    than zero. **Default:** `10`.
+* Returns: {Histogram}
+
+Creates a `Histogram` object that samples and reports the event loop delay
+over time.
+
+Using a timer to detect approximate event loop delay works because the
+execution of timers is tied specifically to the lifecycle of the libuv
+event loop. That is, a delay in the loop will cause a delay in the execution
+of the timer, and those delays are specifically what this API is intended to
+detect.
+
+```js
+const { monitorEventLoopDelay } = require('perf_hooks');
+const h = monitorEventLoopDelay({ resolution: 20 });
+h.enable();
+// Do something.
+h.disable();
+console.log(h.min);
+console.log(h.max);
+console.log(h.mean);
+console.log(h.stddev);
+console.log(h.percentiles);
+console.log(h.percentile(50));
+console.log(h.percentile(99));
+```
+
+### Class: Histogram
+<!-- YAML
+added: v11.10.0
+-->
+Tracks the event loop delay at a given sampling rate.
+
+#### histogram.disable()
+<!-- YAML
+added: v11.10.0
+-->
+
+* Returns: {boolean}
+
+Disables the event loop delay sample timer. Returns `true` if the timer was
+stopped, `false` if it was already stopped.
+
+#### histogram.enable()
+<!-- YAML
+added: v11.10.0
+-->
+
+* Returns: {boolean}
+
+Enables the event loop delay sample timer. Returns `true` if the timer was
+started, `false` if it was already started.
+
+#### histogram.exceeds
+<!-- YAML
+added: v11.10.0
+-->
+
+* {number}
+
+The number of times the event loop delay exceeded the maximum 1 hour event
+loop delay threshold.
+
+#### histogram.max
+<!-- YAML
+added: v11.10.0
+-->
+
+* {number}
+
+The maximum recorded event loop delay.
+
+#### histogram.mean
+<!-- YAML
+added: v11.10.0
+-->
+
+* {number}
+
+The mean of the recorded event loop delays.
+
+#### histogram.min
+<!-- YAML
+added: v11.10.0
+-->
+
+* {number}
+
+The minimum recorded event loop delay.
+
+#### histogram.percentile(percentile)
+<!-- YAML
+added: v11.10.0
+-->
+
+* `percentile` {number} A percentile value between 1 and 100.
+* Returns: {number}
+
+Returns the value at the given percentile.
+
+#### histogram.percentiles
+<!-- YAML
+added: v11.10.0
+-->
+
+* {Map}
+
+Returns a `Map` object detailing the accumulated percentile distribution.
+
+#### histogram.reset()
+<!-- YAML
+added: v11.10.0
+-->
+
+Resets the collected histogram data.
+
+#### histogram.stddev
+<!-- YAML
+added: v11.10.0
+-->
+
+* {number}
+
+The standard deviation of the recorded event loop delays.
 
 ## Examples
 

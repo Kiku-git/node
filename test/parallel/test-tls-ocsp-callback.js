@@ -22,9 +22,6 @@
 'use strict';
 const common = require('../common');
 
-if (!process.features.tls_ocsp)
-  common.skip('node compiled without OpenSSL or with old OpenSSL version.');
-
 if (!common.opensslCli)
   common.skip('node compiled without OpenSSL CLI.');
 
@@ -38,7 +35,7 @@ const assert = require('assert');
 
 const SSL_OP_NO_TICKET = require('crypto').constants.SSL_OP_NO_TICKET;
 
-const pfx = fixtures.readKey('agent1-pfx.pem');
+const pfx = fixtures.readKey('agent1.pfx');
 
 function test(testOptions, cb) {
 

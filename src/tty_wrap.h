@@ -34,11 +34,12 @@ class TTYWrap : public LibuvStreamWrap {
  public:
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
-                         v8::Local<v8::Context> context);
+                         v8::Local<v8::Context> context,
+                         void* priv);
 
-  uv_tty_t* UVHandle();
-
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(TTYWrap)
+  SET_SELF_SIZE(TTYWrap)
 
  private:
   TTYWrap(Environment* env,

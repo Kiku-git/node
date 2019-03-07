@@ -24,13 +24,12 @@
 #include "async_wrap-inl.h"
 #include "env-inl.h"
 #include "node.h"
-#include "node_internals.h"
 #include "req_wrap-inl.h"
 #include "util-inl.h"
 #include "uv.h"
 
-#include <errno.h>
-#include <string.h>
+#include <cerrno>
+#include <cstring>
 #include <vector>
 #include <unordered_set>
 
@@ -61,6 +60,7 @@ using v8::EscapableHandleScope;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
+using v8::Int32;
 using v8::Integer;
 using v8::Local;
 using v8::Null;
@@ -121,10 +121,14 @@ inline const char* ToErrorCodeString(int status) {
 
 class ChannelWrap;
 
-struct node_ares_task {
+struct node_ares_task : public MemoryRetainer {
   ChannelWrap* channel;
   ares_socket_t sock;
   uv_poll_t poll_watcher;
+
+  inline void MemoryInfo(MemoryTracker* tracker) const override;
+  SET_MEMORY_INFO_NAME(node_ares_task)
+  SET_SELF_SIZE(node_ares_task)
 };
 
 struct TaskHash {
@@ -145,28 +149,34 @@ using node_ares_task_list =
 class ChannelWrap : public AsyncWrap {
  public:
   ChannelWrap(Environment* env, Local<Object> object);
-  ~ChannelWrap();
+  ~ChannelWrap() override;
 
   static void New(const FunctionCallbackInfo<Value>& args);
 
   void Setup();
   void EnsureServers();
-  void CleanupTimer();
+  void StartTimer();
+  void CloseTimer();
 
   void ModifyActivityQueryCount(int count);
 
   inline uv_timer_t* timer_handle() { return timer_handle_; }
   inline ares_channel cares_channel() { return channel_; }
-  inline bool query_last_ok() const { return query_last_ok_; }
   inline void set_query_last_ok(bool ok) { query_last_ok_ = ok; }
-  inline bool is_servers_default() const { return is_servers_default_; }
   inline void set_is_servers_default(bool is_default) {
     is_servers_default_ = is_default;
   }
   inline int active_query_count() { return active_query_count_; }
   inline node_ares_task_list* task_list() { return &task_list_; }
 
-  size_t self_size() const override { return sizeof(*this); }
+  void MemoryInfo(MemoryTracker* tracker) const override {
+    if (timer_handle_ != nullptr)
+      tracker->TrackField("timer_handle", *timer_handle_);
+    tracker->TrackField("task_list", task_list_, "node_ares_task_list");
+  }
+
+  SET_MEMORY_INFO_NAME(ChannelWrap)
+  SET_SELF_SIZE(ChannelWrap)
 
   static void AresTimeout(uv_timer_t* handle);
 
@@ -208,7 +218,10 @@ class GetAddrInfoReqWrap : public ReqWrap<uv_getaddrinfo_t> {
                      Local<Object> req_wrap_obj,
                      bool verbatim);
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(GetAddrInfoReqWrap)
+  SET_SELF_SIZE(GetAddrInfoReqWrap)
+
   bool verbatim() const { return verbatim_; }
 
  private:
@@ -227,7 +240,9 @@ class GetNameInfoReqWrap : public ReqWrap<uv_getnameinfo_t> {
  public:
   GetNameInfoReqWrap(Environment* env, Local<Object> req_wrap_obj);
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(GetNameInfoReqWrap)
+  SET_SELF_SIZE(GetNameInfoReqWrap)
 };
 
 GetNameInfoReqWrap::GetNameInfoReqWrap(Environment* env,
@@ -269,13 +284,16 @@ void ares_poll_cb(uv_poll_t* watcher, int status, int events) {
 
 void ares_poll_close_cb(uv_poll_t* watcher) {
   node_ares_task* task = ContainerOf(&node_ares_task::poll_watcher, watcher);
-  free(task);
+  delete task;
 }
 
+void node_ares_task::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("channel", channel);
+}
 
 /* Allocates and returns a new node_ares_task */
 node_ares_task* ares_task_create(ChannelWrap* channel, ares_socket_t sock) {
-  auto task = node::UncheckedMalloc<node_ares_task>(1);
+  auto task = new node_ares_task();
 
   if (task == nullptr) {
     /* Out of memory. */
@@ -313,13 +331,7 @@ void ares_sockstate_cb(void* data,
   if (read || write) {
     if (!task) {
       /* New socket */
-
-      /* If this is the first socket then start the timer. */
-      uv_timer_t* timer_handle = channel->timer_handle();
-      if (!uv_is_active(reinterpret_cast<uv_handle_t*>(timer_handle))) {
-        CHECK(channel->task_list()->empty());
-        uv_timer_start(timer_handle, ChannelWrap::AresTimeout, 1000, 1000);
-      }
+      channel->StartTimer();
 
       task = ares_task_create(channel, sock);
       if (task == nullptr) {
@@ -349,7 +361,7 @@ void ares_sockstate_cb(void* data,
     channel->env()->CloseHandle(&task->poll_watcher, ares_poll_close_cb);
 
     if (channel->task_list()->empty()) {
-      uv_timer_stop(channel->timer_handle());
+      channel->CloseTimer();
     }
   }
 }
@@ -381,7 +393,7 @@ void safe_free_hostent(struct hostent* host) {
       free(host->h_addr_list[idx++]);
     }
     free(host->h_addr_list);
-    host->h_addr_list = 0;
+    host->h_addr_list = nullptr;
   }
 
   if (host->h_aliases != nullptr) {
@@ -390,17 +402,14 @@ void safe_free_hostent(struct hostent* host) {
       free(host->h_aliases[idx++]);
     }
     free(host->h_aliases);
-    host->h_aliases = 0;
+    host->h_aliases = nullptr;
   }
 
-  if (host->h_name != nullptr) {
-    free(host->h_name);
-  }
-
-  host->h_addrtype = host->h_length = 0;
+  free(host->h_name);
+  free(host);
 }
 
-void cares_wrap_hostent_cpy(struct hostent* dest, struct hostent* src) {
+void cares_wrap_hostent_cpy(struct hostent* dest, const struct hostent* src) {
   dest->h_addr_list = nullptr;
   dest->h_addrtype = 0;
   dest->h_aliases = nullptr;
@@ -414,7 +423,6 @@ void cares_wrap_hostent_cpy(struct hostent* dest, struct hostent* src) {
 
   /* copy `h_aliases` */
   size_t alias_count;
-  size_t cur_alias_length;
   for (alias_count = 0;
       src->h_aliases[alias_count] != nullptr;
       alias_count++) {
@@ -422,9 +430,9 @@ void cares_wrap_hostent_cpy(struct hostent* dest, struct hostent* src) {
 
   dest->h_aliases = node::Malloc<char*>(alias_count + 1);
   for (size_t i = 0; i < alias_count; i++) {
-    cur_alias_length = strlen(src->h_aliases[i]);
-    dest->h_aliases[i] = node::Malloc(cur_alias_length + 1);
-    memcpy(dest->h_aliases[i], src->h_aliases[i], cur_alias_length + 1);
+    const size_t cur_alias_size = strlen(src->h_aliases[i]) + 1;
+    dest->h_aliases[i] = node::Malloc(cur_alias_size);
+    memcpy(dest->h_aliases[i], src->h_aliases[i], cur_alias_size);
   }
   dest->h_aliases[alias_count] = nullptr;
 
@@ -448,18 +456,6 @@ void cares_wrap_hostent_cpy(struct hostent* dest, struct hostent* src) {
 }
 
 class QueryWrap;
-struct CaresAsyncData {
-  QueryWrap* wrap;
-  int status;
-  bool is_host;
-  union {
-    hostent* host;
-    unsigned char* buf;
-  } data;
-  int len;
-
-  uv_async_t async_handle;
-};
 
 void ChannelWrap::Setup() {
   struct ares_options options;
@@ -490,38 +486,43 @@ void ChannelWrap::Setup() {
   }
 
   library_inited_ = true;
-
-  /* Initialize the timeout timer. The timer won't be started until the */
-  /* first socket is opened. */
-  CleanupTimer();
-  timer_handle_ = new uv_timer_t();
-  timer_handle_->data = static_cast<void*>(this);
-  uv_timer_init(env()->event_loop(), timer_handle_);
 }
 
+void ChannelWrap::StartTimer() {
+  if (timer_handle_ == nullptr) {
+    timer_handle_ = new uv_timer_t();
+    timer_handle_->data = static_cast<void*>(this);
+    uv_timer_init(env()->event_loop(), timer_handle_);
+  } else if (uv_is_active(reinterpret_cast<uv_handle_t*>(timer_handle_))) {
+    return;
+  }
+  uv_timer_start(timer_handle_, AresTimeout, 1000, 1000);
+}
+
+void ChannelWrap::CloseTimer() {
+  if (timer_handle_ == nullptr)
+    return;
+
+  env()->CloseHandle(timer_handle_, [](uv_timer_t* handle) { delete handle; });
+  timer_handle_ = nullptr;
+}
 
 ChannelWrap::~ChannelWrap() {
+  ares_destroy(channel_);
+
   if (library_inited_) {
     Mutex::ScopedLock lock(ares_library_mutex);
     // This decreases the reference counter increased by ares_library_init().
     ares_library_cleanup();
   }
 
-  ares_destroy(channel_);
-  CleanupTimer();
+  CloseTimer();
 }
 
-
-void ChannelWrap::CleanupTimer() {
-  if (timer_handle_ == nullptr) return;
-
-  env()->CloseHandle(timer_handle_, [](uv_timer_t* handle) { delete handle; });
-  timer_handle_ = nullptr;
-}
 
 void ChannelWrap::ModifyActivityQueryCount(int count) {
   active_query_count_ += count;
-  if (active_query_count_ < 0) active_query_count_ = 0;
+  CHECK_GE(active_query_count_, 0);
 }
 
 
@@ -566,15 +567,17 @@ void ChannelWrap::EnsureServers() {
   /* destroy channel and reset channel */
   ares_destroy(channel_);
 
+  CloseTimer();
   Setup();
 }
 
 
 class QueryWrap : public AsyncWrap {
  public:
-  QueryWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
+  QueryWrap(ChannelWrap* channel, Local<Object> req_wrap_obj, const char* name)
       : AsyncWrap(channel->env(), req_wrap_obj, AsyncWrap::PROVIDER_QUERYWRAP),
-        channel_(channel) {
+        channel_(channel),
+        trace_name_(name) {
     // Make sure the channel object stays alive during the query lifetime.
     req_wrap_obj->Set(env()->context(),
                       env()->channel_string(),
@@ -583,6 +586,10 @@ class QueryWrap : public AsyncWrap {
 
   ~QueryWrap() override {
     CHECK_EQ(false, persistent().IsEmpty());
+
+    // Let Callback() know that this object no longer exists.
+    if (callback_ptr_ != nullptr)
+      *callback_ptr_ = nullptr;
   }
 
   // Subclasses should implement the appropriate Send method.
@@ -601,41 +608,54 @@ class QueryWrap : public AsyncWrap {
                  int dnsclass,
                  int type) {
     channel_->EnsureServers();
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN1(
+      TRACING_CATEGORY_NODE2(dns, native), trace_name_, this,
+      "name", TRACE_STR_COPY(name));
     ares_query(channel_->cares_channel(), name, dnsclass, type, Callback,
-               static_cast<void*>(this));
+               MakeCallbackPointer());
   }
 
-  static void CaresAsyncClose(uv_async_t* async) {
-    auto data = static_cast<struct CaresAsyncData*>(async->data);
-    delete data->wrap;
-    delete data;
-  }
+  struct ResponseData {
+    int status;
+    bool is_host;
+    DeleteFnPtr<hostent, safe_free_hostent> host;
+    MallocedBuffer<unsigned char> buf;
+  };
 
-  static void CaresAsyncCb(uv_async_t* handle) {
-    auto data = static_cast<struct CaresAsyncData*>(handle->data);
+  void AfterResponse() {
+    CHECK(response_data_);
 
-    QueryWrap* wrap = data->wrap;
-    int status = data->status;
+    const int status = response_data_->status;
 
     if (status != ARES_SUCCESS) {
-      wrap->ParseError(status);
-    } else if (!data->is_host) {
-      unsigned char* buf = data->data.buf;
-      wrap->Parse(buf, data->len);
-      free(buf);
+      ParseError(status);
+    } else if (!response_data_->is_host) {
+      Parse(response_data_->buf.data, response_data_->buf.size);
     } else {
-      hostent* host = data->data.host;
-      wrap->Parse(host);
-      safe_free_hostent(host);
-      free(host);
+      Parse(response_data_->host.get());
     }
 
-    wrap->env()->CloseHandle(handle, CaresAsyncClose);
+    delete this;
   }
 
-  static void Callback(void *arg, int status, int timeouts,
+  void* MakeCallbackPointer() {
+    CHECK_NULL(callback_ptr_);
+    callback_ptr_ = new QueryWrap*(this);
+    return callback_ptr_;
+  }
+
+  static QueryWrap* FromCallbackPointer(void* arg) {
+    std::unique_ptr<QueryWrap*> wrap_ptr { static_cast<QueryWrap**>(arg) };
+    QueryWrap* wrap = *wrap_ptr.get();
+    if (wrap == nullptr) return nullptr;
+    wrap->callback_ptr_ = nullptr;
+    return wrap;
+  }
+
+  static void Callback(void* arg, int status, int timeouts,
                        unsigned char* answer_buf, int answer_len) {
-    QueryWrap* wrap = static_cast<QueryWrap*>(arg);
+    QueryWrap* wrap = FromCallbackPointer(arg);
+    if (wrap == nullptr) return;
 
     unsigned char* buf_copy = nullptr;
     if (status == ARES_SUCCESS) {
@@ -643,27 +663,19 @@ class QueryWrap : public AsyncWrap {
       memcpy(buf_copy, answer_buf, answer_len);
     }
 
-    CaresAsyncData* data = new CaresAsyncData();
+    wrap->response_data_.reset(new ResponseData());
+    ResponseData* data = wrap->response_data_.get();
     data->status = status;
-    data->wrap = wrap;
     data->is_host = false;
-    data->data.buf = buf_copy;
-    data->len = answer_len;
+    data->buf = MallocedBuffer<unsigned char>(buf_copy, answer_len);
 
-    uv_async_t* async_handle = &data->async_handle;
-    CHECK_EQ(0, uv_async_init(wrap->env()->event_loop(),
-                              async_handle,
-                              CaresAsyncCb));
-
-    wrap->channel_->set_query_last_ok(status != ARES_ECONNREFUSED);
-    wrap->channel_->ModifyActivityQueryCount(-1);
-    async_handle->data = data;
-    uv_async_send(async_handle);
+    wrap->QueueResponseCallback(status);
   }
 
-  static void Callback(void *arg, int status, int timeouts,
+  static void Callback(void* arg, int status, int timeouts,
                        struct hostent* host) {
-    QueryWrap* wrap = static_cast<QueryWrap*>(arg);
+    QueryWrap* wrap = FromCallbackPointer(arg);
+    if (wrap == nullptr) return;
 
     struct hostent* host_copy = nullptr;
     if (status == ARES_SUCCESS) {
@@ -671,20 +683,22 @@ class QueryWrap : public AsyncWrap {
       cares_wrap_hostent_cpy(host_copy, host);
     }
 
-    CaresAsyncData* data = new CaresAsyncData();
+    wrap->response_data_.reset(new ResponseData());
+    ResponseData* data = wrap->response_data_.get();
     data->status = status;
-    data->data.host = host_copy;
-    data->wrap = wrap;
+    data->host.reset(host_copy);
     data->is_host = true;
 
-    uv_async_t* async_handle = &data->async_handle;
-    CHECK_EQ(0, uv_async_init(wrap->env()->event_loop(),
-                              async_handle,
-                              CaresAsyncCb));
+    wrap->QueueResponseCallback(status);
+  }
 
-    wrap->channel_->set_query_last_ok(status != ARES_ECONNREFUSED);
-    async_handle->data = data;
-    uv_async_send(async_handle);
+  void QueueResponseCallback(int status) {
+    env()->SetImmediate([](Environment*, void* data) {
+      static_cast<QueryWrap*>(data)->AfterResponse();
+    }, this, object());
+
+    channel_->set_query_last_ok(status != ARES_ECONNREFUSED);
+    channel_->ModifyActivityQueryCount(-1);
   }
 
   void CallOnComplete(Local<Value> answer,
@@ -697,6 +711,9 @@ class QueryWrap : public AsyncWrap {
       extra
     };
     const int argc = arraysize(argv) - extra.IsEmpty();
+    TRACE_EVENT_NESTABLE_ASYNC_END0(
+        TRACING_CATEGORY_NODE2(dns, native), trace_name_, this);
+
     MakeCallback(env()->oncomplete_string(), argc, argv);
   }
 
@@ -706,6 +723,9 @@ class QueryWrap : public AsyncWrap {
     Context::Scope context_scope(env()->context());
     const char* code = ToErrorCodeString(status);
     Local<Value> arg = OneByteString(env()->isolate(), code);
+    TRACE_EVENT_NESTABLE_ASYNC_END1(
+        TRACING_CATEGORY_NODE2(dns, native), trace_name_, this,
+        "error", status);
     MakeCallback(env()->oncomplete_string(), 1, &arg);
   }
 
@@ -719,6 +739,13 @@ class QueryWrap : public AsyncWrap {
   }
 
   ChannelWrap* channel_;
+
+ private:
+  std::unique_ptr<ResponseData> response_data_;
+  const char* trace_name_;
+  // Pointer to pointer to 'this' that can be reset from the destructor,
+  // in order to let Callback() know that 'this' no longer exists.
+  QueryWrap** callback_ptr_ = nullptr;
 };
 
 
@@ -839,23 +866,20 @@ int ParseMxReply(Environment* env,
     return status;
   }
 
-  Local<String> exchange_symbol = env->exchange_string();
-  Local<String> priority_symbol = env->priority_string();
-  Local<String> type_symbol = env->type_string();
-  Local<String> mx_symbol = env->dns_mx_string();
-
   uint32_t offset = ret->Length();
   ares_mx_reply* current = mx_start;
   for (uint32_t i = 0; current != nullptr; ++i, current = current->next) {
     Local<Object> mx_record = Object::New(env->isolate());
     mx_record->Set(context,
-                   exchange_symbol,
+                   env->exchange_string(),
                    OneByteString(env->isolate(), current->host)).FromJust();
     mx_record->Set(context,
-                   priority_symbol,
+                   env->priority_string(),
                    Integer::New(env->isolate(), current->priority)).FromJust();
     if (need_type)
-      mx_record->Set(context, type_symbol, mx_symbol).FromJust();
+      mx_record->Set(context,
+                     env->type_string(),
+                     env->dns_mx_string()).FromJust();
 
     ret->Set(context, i + offset, mx_record).FromJust();
   }
@@ -942,31 +966,26 @@ int ParseSrvReply(Environment* env,
     return status;
   }
 
-  Local<String> name_symbol = env->name_string();
-  Local<String> port_symbol = env->port_string();
-  Local<String> priority_symbol = env->priority_string();
-  Local<String> weight_symbol = env->weight_string();
-  Local<String> type_symbol = env->type_string();
-  Local<String> srv_symbol = env->dns_srv_string();
-
   ares_srv_reply* current = srv_start;
   int offset = ret->Length();
   for (uint32_t i = 0; current != nullptr; ++i, current = current->next) {
     Local<Object> srv_record = Object::New(env->isolate());
     srv_record->Set(context,
-                    name_symbol,
+                    env->name_string(),
                     OneByteString(env->isolate(), current->host)).FromJust();
     srv_record->Set(context,
-                    port_symbol,
+                    env->port_string(),
                     Integer::New(env->isolate(), current->port)).FromJust();
     srv_record->Set(context,
-                    priority_symbol,
+                    env->priority_string(),
                     Integer::New(env->isolate(), current->priority)).FromJust();
     srv_record->Set(context,
-                    weight_symbol,
+                    env->weight_string(),
                     Integer::New(env->isolate(), current->weight)).FromJust();
     if (need_type)
-      srv_record->Set(context, type_symbol, srv_symbol).FromJust();
+      srv_record->Set(context,
+                      env->type_string(),
+                      env->dns_srv_string()).FromJust();
 
     ret->Set(context, i + offset, srv_record).FromJust();
   }
@@ -991,43 +1010,36 @@ int ParseNaptrReply(Environment* env,
     return status;
   }
 
-  Local<String> flags_symbol = env->flags_string();
-  Local<String> service_symbol = env->service_string();
-  Local<String> regexp_symbol = env->regexp_string();
-  Local<String> replacement_symbol = env->replacement_string();
-  Local<String> order_symbol = env->order_string();
-  Local<String> preference_symbol = env->preference_string();
-  Local<String> type_symbol = env->type_string();
-  Local<String> naptr_symbol = env->dns_naptr_string();
-
   ares_naptr_reply* current = naptr_start;
   int offset = ret->Length();
   for (uint32_t i = 0; current != nullptr; ++i, current = current->next) {
     Local<Object> naptr_record = Object::New(env->isolate());
     naptr_record->Set(context,
-                      flags_symbol,
+                      env->flags_string(),
                       OneByteString(env->isolate(), current->flags)).FromJust();
     naptr_record->Set(context,
-                      service_symbol,
+                      env->service_string(),
                       OneByteString(env->isolate(),
                                     current->service)).FromJust();
     naptr_record->Set(context,
-                      regexp_symbol,
+                      env->regexp_string(),
                       OneByteString(env->isolate(),
                                     current->regexp)).FromJust();
     naptr_record->Set(context,
-                      replacement_symbol,
+                      env->replacement_string(),
                       OneByteString(env->isolate(),
                                     current->replacement)).FromJust();
     naptr_record->Set(context,
-                      order_symbol,
+                      env->order_string(),
                       Integer::New(env->isolate(), current->order)).FromJust();
     naptr_record->Set(context,
-                      preference_symbol,
+                      env->preference_string(),
                       Integer::New(env->isolate(),
                                    current->preference)).FromJust();
     if (need_type)
-      naptr_record->Set(context, type_symbol, naptr_symbol).FromJust();
+      naptr_record->Set(context,
+                        env->type_string(),
+                        env->dns_naptr_string()).FromJust();
 
     ret->Set(context, i + offset, naptr_record).FromJust();
   }
@@ -1044,117 +1056,115 @@ int ParseSoaReply(Environment* env,
   EscapableHandleScope handle_scope(env->isolate());
   auto context = env->context();
 
-  /* Can't use ares_parse_soa_reply() here which can only parse single record */
-  unsigned int ancount = cares_get_16bit(buf + 6);
+  // Manage memory using standardard smart pointer std::unique_tr
+  struct AresDeleter {
+    void operator()(char* ptr) const noexcept { ares_free_string(ptr); }
+  };
+  using ares_unique_ptr = std::unique_ptr<char[], AresDeleter>;
+
+  // Can't use ares_parse_soa_reply() here which can only parse single record
+  const unsigned int ancount = cares_get_16bit(buf + 6);
   unsigned char* ptr = buf + NS_HFIXEDSZ;
-  int rr_type, rr_len;
-  char* name;
-  char* rr_name;
+  char* name_temp;
   long temp_len;  // NOLINT(runtime/int)
-  int status = ares_expand_name(ptr, buf, len, &name, &temp_len);
+  int status = ares_expand_name(ptr, buf, len, &name_temp, &temp_len);
+  const ares_unique_ptr name(name_temp);
   if (status != ARES_SUCCESS) {
-    /* returns EBADRESP in case of invalid input */
+    // returns EBADRESP in case of invalid input
     return status == ARES_EBADNAME ? ARES_EBADRESP : status;
   }
 
   if (ptr + temp_len + NS_QFIXEDSZ > buf + len) {
-    free(name);
     return ARES_EBADRESP;
   }
   ptr += temp_len + NS_QFIXEDSZ;
 
   for (unsigned int i = 0; i < ancount; i++) {
-    status = ares_expand_name(ptr, buf, len, &rr_name, &temp_len);
+    char* rr_name_temp;
+    long rr_temp_len;  // NOLINT(runtime/int)
+    int status2 = ares_expand_name(ptr, buf, len, &rr_name_temp, &rr_temp_len);
+    const ares_unique_ptr rr_name(rr_name_temp);
 
-    if (status != ARES_SUCCESS)
-      break;
+    if (status2 != ARES_SUCCESS)
+      return status2 == ARES_EBADNAME ? ARES_EBADRESP : status2;
 
-    ptr += temp_len;
+    ptr += rr_temp_len;
     if (ptr + NS_RRFIXEDSZ > buf + len) {
-      free(rr_name);
-      status = ARES_EBADRESP;
-      break;
+      return ARES_EBADRESP;
     }
 
-    rr_type = cares_get_16bit(ptr);
-    rr_len = cares_get_16bit(ptr + 8);
+    const int rr_type = cares_get_16bit(ptr);
+    const int rr_len = cares_get_16bit(ptr + 8);
     ptr += NS_RRFIXEDSZ;
 
-    /* only need SOA */
+    // only need SOA
     if (rr_type == ns_t_soa) {
-      ares_soa_reply soa;
+      char* nsname_temp;
+      long nsname_temp_len;  // NOLINT(runtime/int)
 
-      status = ares_expand_name(ptr, buf, len, &soa.nsname, &temp_len);
-      if (status != ARES_SUCCESS) {
-        free(rr_name);
-        break;
+      int status3 = ares_expand_name(ptr, buf, len,
+                                     &nsname_temp,
+                                     &nsname_temp_len);
+      const ares_unique_ptr nsname(nsname_temp);
+      if (status3 != ARES_SUCCESS) {
+        return status3 == ARES_EBADNAME ? ARES_EBADRESP : status3;
       }
-      ptr += temp_len;
+      ptr += nsname_temp_len;
 
-      status = ares_expand_name(ptr, buf, len, &soa.hostmaster, &temp_len);
-      if (status != ARES_SUCCESS) {
-        free(rr_name);
-        free(soa.nsname);
-        break;
+      char* hostmaster_temp;
+      long hostmaster_temp_len;  // NOLINT(runtime/int)
+      int status4 = ares_expand_name(ptr, buf, len,
+                                     &hostmaster_temp,
+                                     &hostmaster_temp_len);
+      const ares_unique_ptr hostmaster(hostmaster_temp);
+      if (status4 != ARES_SUCCESS) {
+        return status4 == ARES_EBADNAME ? ARES_EBADRESP : status4;
       }
-      ptr += temp_len;
+      ptr += hostmaster_temp_len;
 
       if (ptr + 5 * 4 > buf + len) {
-        free(rr_name);
-        free(soa.nsname);
-        free(soa.hostmaster);
-        status = ARES_EBADRESP;
-        break;
+        return ARES_EBADRESP;
       }
 
-      soa.serial = cares_get_32bit(ptr + 0 * 4);
-      soa.refresh = cares_get_32bit(ptr + 1 * 4);
-      soa.retry = cares_get_32bit(ptr + 2 * 4);
-      soa.expire = cares_get_32bit(ptr + 3 * 4);
-      soa.minttl = cares_get_32bit(ptr + 4 * 4);
+      const unsigned int serial = cares_get_32bit(ptr + 0 * 4);
+      const unsigned int refresh = cares_get_32bit(ptr + 1 * 4);
+      const unsigned int retry = cares_get_32bit(ptr + 2 * 4);
+      const unsigned int expire = cares_get_32bit(ptr + 3 * 4);
+      const unsigned int minttl = cares_get_32bit(ptr + 4 * 4);
 
       Local<Object> soa_record = Object::New(env->isolate());
       soa_record->Set(context,
                       env->nsname_string(),
-                      OneByteString(env->isolate(), soa.nsname)).FromJust();
+                      OneByteString(env->isolate(), nsname.get())).FromJust();
       soa_record->Set(context,
                       env->hostmaster_string(),
                       OneByteString(env->isolate(),
-                                    soa.hostmaster)).FromJust();
+                                    hostmaster.get())).FromJust();
       soa_record->Set(context,
                       env->serial_string(),
-                      Integer::New(env->isolate(), soa.serial)).FromJust();
+                      Integer::New(env->isolate(), serial)).FromJust();
       soa_record->Set(context,
                       env->refresh_string(),
-                      Integer::New(env->isolate(), soa.refresh)).FromJust();
+                      Integer::New(env->isolate(), refresh)).FromJust();
       soa_record->Set(context,
                       env->retry_string(),
-                      Integer::New(env->isolate(), soa.retry)).FromJust();
+                      Integer::New(env->isolate(), retry)).FromJust();
       soa_record->Set(context,
                       env->expire_string(),
-                      Integer::New(env->isolate(), soa.expire)).FromJust();
+                      Integer::New(env->isolate(), expire)).FromJust();
       soa_record->Set(context,
                       env->minttl_string(),
-                      Integer::New(env->isolate(), soa.minttl)).FromJust();
+                      Integer::New(env->isolate(), minttl)).FromJust();
       soa_record->Set(context,
                       env->type_string(),
                       env->dns_soa_string()).FromJust();
 
-      free(soa.nsname);
-      free(soa.hostmaster);
 
       *ret = handle_scope.Escape(soa_record);
       break;
     }
 
-    free(rr_name);
     ptr += rr_len;
-  }
-
-  free(name);
-
-  if (status != ARES_SUCCESS) {
-    return status == ARES_EBADNAME ? ARES_EBADRESP : status;
   }
 
   return ARES_SUCCESS;
@@ -1164,7 +1174,7 @@ int ParseSoaReply(Environment* env,
 class QueryAnyWrap: public QueryWrap {
  public:
   QueryAnyWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-    : QueryWrap(channel, req_wrap_obj) {
+    : QueryWrap(channel, req_wrap_obj, "resolveAny") {
   }
 
   int Send(const char* name) override {
@@ -1172,7 +1182,9 @@ class QueryAnyWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryAnyWrap)
+  SET_SELF_SIZE(QueryAnyWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1195,15 +1207,15 @@ class QueryAnyWrap: public QueryWrap {
                                ret,
                                addrttls,
                                &naddrttls);
-    int a_count = ret->Length();
+    uint32_t a_count = ret->Length();
     if (status != ARES_SUCCESS && status != ARES_ENODATA) {
       ParseError(status);
       return;
     }
 
     if (type == ns_t_a) {
-      CHECK_EQ(naddrttls, a_count);
-      for (int i = 0; i < a_count; i++) {
+      CHECK_EQ(static_cast<uint32_t>(naddrttls), a_count);
+      for (uint32_t i = 0; i < a_count; i++) {
         Local<Object> obj = Object::New(env()->isolate());
         obj->Set(context,
                  env()->address_string(),
@@ -1217,7 +1229,7 @@ class QueryAnyWrap: public QueryWrap {
         ret->Set(context, i, obj).FromJust();
       }
     } else {
-      for (int i = 0; i < a_count; i++) {
+      for (uint32_t i = 0; i < a_count; i++) {
         Local<Object> obj = Object::New(env()->isolate());
         obj->Set(context,
                  env()->value_string(),
@@ -1241,13 +1253,14 @@ class QueryAnyWrap: public QueryWrap {
                                ret,
                                addr6ttls,
                                &naddr6ttls);
-    int aaaa_count = ret->Length() - a_count;
+    uint32_t aaaa_count = ret->Length() - a_count;
     if (status != ARES_SUCCESS && status != ARES_ENODATA) {
       ParseError(status);
       return;
     }
 
-    CHECK_EQ(aaaa_count, naddr6ttls);
+    CHECK_EQ(aaaa_count, static_cast<uint32_t>(naddr6ttls));
+    CHECK_EQ(ret->Length(), a_count + aaaa_count);
     for (uint32_t i = a_count; i < ret->Length(); i++) {
       Local<Object> obj = Object::New(env()->isolate());
       obj->Set(context,
@@ -1255,7 +1268,8 @@ class QueryAnyWrap: public QueryWrap {
                ret->Get(context, i).ToLocalChecked()).FromJust();
       obj->Set(context,
                env()->ttl_string(),
-               Integer::New(env()->isolate(), addr6ttls[i].ttl)).FromJust();
+               Integer::New(env()->isolate(), addr6ttls[i - a_count].ttl))
+          .FromJust();
       obj->Set(context,
                env()->type_string(),
                env()->dns_aaaa_string()).FromJust();
@@ -1341,7 +1355,7 @@ class QueryAnyWrap: public QueryWrap {
 class QueryAWrap: public QueryWrap {
  public:
   QueryAWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolve4") {
   }
 
   int Send(const char* name) override {
@@ -1349,7 +1363,9 @@ class QueryAWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryAWrap)
+  SET_SELF_SIZE(QueryAWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1385,7 +1401,7 @@ class QueryAWrap: public QueryWrap {
 class QueryAaaaWrap: public QueryWrap {
  public:
   QueryAaaaWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolve6") {
   }
 
   int Send(const char* name) override {
@@ -1393,7 +1409,9 @@ class QueryAaaaWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryAaaaWrap)
+  SET_SELF_SIZE(QueryAaaaWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1429,7 +1447,7 @@ class QueryAaaaWrap: public QueryWrap {
 class QueryCnameWrap: public QueryWrap {
  public:
   QueryCnameWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveCname") {
   }
 
   int Send(const char* name) override {
@@ -1437,7 +1455,9 @@ class QueryCnameWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryCnameWrap)
+  SET_SELF_SIZE(QueryCnameWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1460,7 +1480,7 @@ class QueryCnameWrap: public QueryWrap {
 class QueryMxWrap: public QueryWrap {
  public:
   QueryMxWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveMx") {
   }
 
   int Send(const char* name) override {
@@ -1468,7 +1488,9 @@ class QueryMxWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryMxWrap)
+  SET_SELF_SIZE(QueryMxWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1491,7 +1513,7 @@ class QueryMxWrap: public QueryWrap {
 class QueryNsWrap: public QueryWrap {
  public:
   QueryNsWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveNs") {
   }
 
   int Send(const char* name) override {
@@ -1499,7 +1521,9 @@ class QueryNsWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryNsWrap)
+  SET_SELF_SIZE(QueryNsWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1522,7 +1546,7 @@ class QueryNsWrap: public QueryWrap {
 class QueryTxtWrap: public QueryWrap {
  public:
   QueryTxtWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveTxt") {
   }
 
   int Send(const char* name) override {
@@ -1530,7 +1554,9 @@ class QueryTxtWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryTxtWrap)
+  SET_SELF_SIZE(QueryTxtWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1552,7 +1578,7 @@ class QueryTxtWrap: public QueryWrap {
 class QuerySrvWrap: public QueryWrap {
  public:
   explicit QuerySrvWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveSrv") {
   }
 
   int Send(const char* name) override {
@@ -1560,7 +1586,9 @@ class QuerySrvWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QuerySrvWrap)
+  SET_SELF_SIZE(QuerySrvWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1581,7 +1609,7 @@ class QuerySrvWrap: public QueryWrap {
 class QueryPtrWrap: public QueryWrap {
  public:
   explicit QueryPtrWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolvePtr") {
   }
 
   int Send(const char* name) override {
@@ -1589,7 +1617,9 @@ class QueryPtrWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryPtrWrap)
+  SET_SELF_SIZE(QueryPtrWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1612,7 +1642,7 @@ class QueryPtrWrap: public QueryWrap {
 class QueryNaptrWrap: public QueryWrap {
  public:
   explicit QueryNaptrWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveNaptr") {
   }
 
   int Send(const char* name) override {
@@ -1620,7 +1650,9 @@ class QueryNaptrWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QueryNaptrWrap)
+  SET_SELF_SIZE(QueryNaptrWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1642,7 +1674,7 @@ class QueryNaptrWrap: public QueryWrap {
 class QuerySoaWrap: public QueryWrap {
  public:
   QuerySoaWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "resolveSoa") {
   }
 
   int Send(const char* name) override {
@@ -1650,7 +1682,9 @@ class QuerySoaWrap: public QueryWrap {
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(QuerySoaWrap)
+  SET_SELF_SIZE(QuerySoaWrap)
 
  protected:
   void Parse(unsigned char* buf, int len) override {
@@ -1703,7 +1737,7 @@ class QuerySoaWrap: public QueryWrap {
 class GetHostByAddrWrap: public QueryWrap {
  public:
   explicit GetHostByAddrWrap(ChannelWrap* channel, Local<Object> req_wrap_obj)
-      : QueryWrap(channel, req_wrap_obj) {
+      : QueryWrap(channel, req_wrap_obj, "reverse") {
   }
 
   int Send(const char* name) override {
@@ -1720,16 +1754,23 @@ class GetHostByAddrWrap: public QueryWrap {
       return UV_EINVAL;  // So errnoException() reports a proper error.
     }
 
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN2(
+        TRACING_CATEGORY_NODE2(dns, native), "reverse", this,
+        "name", TRACE_STR_COPY(name),
+        "family", family == AF_INET ? "ipv4" : "ipv6");
+
     ares_gethostbyaddr(channel_->cares_channel(),
                        address_buffer,
                        length,
                        family,
                        Callback,
-                       static_cast<void*>(static_cast<QueryWrap*>(this)));
+                       MakeCallbackPointer());
     return 0;
   }
 
-  size_t self_size() const override { return sizeof(*this); }
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(GetHostByAddrWrap)
+  SET_SELF_SIZE(GetHostByAddrWrap)
 
  protected:
   void Parse(struct hostent* host) override {
@@ -1752,14 +1793,16 @@ static void Query(const FunctionCallbackInfo<Value>& args) {
 
   Local<Object> req_wrap_obj = args[0].As<Object>();
   Local<String> string = args[1].As<String>();
-  Wrap* wrap = new Wrap(channel, req_wrap_obj);
+  auto wrap = std::make_unique<Wrap>(channel, req_wrap_obj);
 
   node::Utf8Value name(env->isolate(), string);
   channel->ModifyActivityQueryCount(1);
   int err = wrap->Send(*name);
   if (err) {
     channel->ModifyActivityQueryCount(-1);
-    delete wrap;
+  } else {
+    // Release ownership of the pointer allowing the ownership to be transferred
+    USE(wrap.release());
   }
 
   args.GetReturnValue().Set(err);
@@ -1767,7 +1810,8 @@ static void Query(const FunctionCallbackInfo<Value>& args) {
 
 
 void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
-  GetAddrInfoReqWrap* req_wrap = static_cast<GetAddrInfoReqWrap*>(req->data);
+  std::unique_ptr<GetAddrInfoReqWrap> req_wrap {
+      static_cast<GetAddrInfoReqWrap*>(req->data)};
   Environment* env = req_wrap->env();
 
   HandleScope handle_scope(env->isolate());
@@ -1778,8 +1822,10 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
     Null(env->isolate())
   };
 
+  uint64_t n = 0;
+  const bool verbatim = req_wrap->verbatim();
+
   if (status == 0) {
-    int n = 0;
     Local<Array> results = Array::New(env->isolate());
 
     auto add = [&] (bool want_ipv4, bool want_ipv6) {
@@ -1802,12 +1848,11 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
           continue;
 
         Local<String> s = OneByteString(env->isolate(), ip);
-        results->Set(n, s);
+        results->Set(env->context(), n, s).FromJust();
         n++;
       }
     };
 
-    const bool verbatim = req_wrap->verbatim();
     add(true, verbatim);
     if (verbatim == false)
       add(false, true);
@@ -1822,10 +1867,12 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
 
   uv_freeaddrinfo(res);
 
+  TRACE_EVENT_NESTABLE_ASYNC_END2(
+      TRACING_CATEGORY_NODE2(dns, native), "lookup", req_wrap.get(),
+      "count", n, "verbatim", verbatim);
+
   // Make the callback into JavaScript
   req_wrap->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
-
-  delete req_wrap;
 }
 
 
@@ -1833,7 +1880,8 @@ void AfterGetNameInfo(uv_getnameinfo_t* req,
                       int status,
                       const char* hostname,
                       const char* service) {
-  GetNameInfoReqWrap* req_wrap = static_cast<GetNameInfoReqWrap*>(req->data);
+  std::unique_ptr<GetNameInfoReqWrap> req_wrap {
+      static_cast<GetNameInfoReqWrap*>(req->data)};
   Environment* env = req_wrap->env();
 
   HandleScope handle_scope(env->isolate());
@@ -1853,13 +1901,17 @@ void AfterGetNameInfo(uv_getnameinfo_t* req,
     argv[2] = js_service;
   }
 
+  TRACE_EVENT_NESTABLE_ASYNC_END2(
+      TRACING_CATEGORY_NODE2(dns, native), "lookupService", req_wrap.get(),
+      "hostname", TRACE_STR_COPY(hostname),
+      "service", TRACE_STR_COPY(service));
+
   // Make the callback into JavaScript
   req_wrap->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
-
-  delete req_wrap;
 }
 
-using ParseIPResult = decltype(static_cast<ares_addr_port_node*>(0)->addr);
+using ParseIPResult =
+    decltype(static_cast<ares_addr_port_node*>(nullptr)->addr);
 
 int ParseIP(const char* ip, ParseIPResult* result = nullptr) {
   ParseIPResult tmp;
@@ -1867,11 +1919,6 @@ int ParseIP(const char* ip, ParseIPResult* result = nullptr) {
   if (0 == uv_inet_pton(AF_INET, ip, result)) return 4;
   if (0 == uv_inet_pton(AF_INET6, ip, result)) return 6;
   return 0;
-}
-
-void IsIPv6(const FunctionCallbackInfo<Value>& args) {
-  node::Utf8Value ip(args.GetIsolate(), args[0]);
-  args.GetReturnValue().Set(6 == ParseIP(*ip));
 }
 
 void CanonicalizeIP(const FunctionCallbackInfo<Value>& args) {
@@ -1885,7 +1932,9 @@ void CanonicalizeIP(const FunctionCallbackInfo<Value>& args) {
   char canonical_ip[INET6_ADDRSTRLEN];
   const int af = (rc == 4 ? AF_INET : AF_INET6);
   CHECK_EQ(0, uv_inet_ntop(af, &result, canonical_ip, sizeof(canonical_ip)));
-  args.GetReturnValue().Set(String::NewFromUtf8(isolate, canonical_ip));
+  v8::Local<String> val = String::NewFromUtf8(isolate, canonical_ip,
+      v8::NewStringType::kNormal).ToLocalChecked();
+  args.GetReturnValue().Set(val);
 }
 
 void GetAddrInfo(const FunctionCallbackInfo<Value>& args) {
@@ -1900,26 +1949,28 @@ void GetAddrInfo(const FunctionCallbackInfo<Value>& args) {
 
   int32_t flags = 0;
   if (args[3]->IsInt32()) {
-    flags = args[3]->Int32Value(env->context()).FromJust();
+    flags = args[3].As<Int32>()->Value();
   }
 
   int family;
 
-  switch (args[2]->Int32Value(env->context()).FromJust()) {
-  case 0:
-    family = AF_UNSPEC;
-    break;
-  case 4:
-    family = AF_INET;
-    break;
-  case 6:
-    family = AF_INET6;
-    break;
-  default:
-    CHECK(0 && "bad address family");
+  switch (args[2].As<Int32>()->Value()) {
+    case 0:
+      family = AF_UNSPEC;
+      break;
+    case 4:
+      family = AF_INET;
+      break;
+    case 6:
+      family = AF_INET6;
+      break;
+    default:
+      CHECK(0 && "bad address family");
   }
 
-  auto req_wrap = new GetAddrInfoReqWrap(env, req_wrap_obj, args[4]->IsTrue());
+  auto req_wrap = std::make_unique<GetAddrInfoReqWrap>(env,
+                                                       req_wrap_obj,
+                                                       args[4]->IsTrue());
 
   struct addrinfo hints;
   memset(&hints, 0, sizeof(struct addrinfo));
@@ -1927,13 +1978,20 @@ void GetAddrInfo(const FunctionCallbackInfo<Value>& args) {
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = flags;
 
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN2(
+      TRACING_CATEGORY_NODE2(dns, native), "lookup", req_wrap.get(),
+      "hostname", TRACE_STR_COPY(*hostname),
+      "family",
+      family == AF_INET ? "ipv4" : family == AF_INET6 ? "ipv6" : "unspec");
+
   int err = req_wrap->Dispatch(uv_getaddrinfo,
                                AfterGetAddrInfo,
                                *hostname,
                                nullptr,
                                &hints);
-  if (err)
-    delete req_wrap;
+  if (err == 0)
+    // Release ownership of the pointer allowing the ownership to be transferred
+    USE(req_wrap.release());
 
   args.GetReturnValue().Set(err);
 }
@@ -1953,14 +2011,19 @@ void GetNameInfo(const FunctionCallbackInfo<Value>& args) {
   CHECK(uv_ip4_addr(*ip, port, reinterpret_cast<sockaddr_in*>(&addr)) == 0 ||
         uv_ip6_addr(*ip, port, reinterpret_cast<sockaddr_in6*>(&addr)) == 0);
 
-  GetNameInfoReqWrap* req_wrap = new GetNameInfoReqWrap(env, req_wrap_obj);
+  auto req_wrap = std::make_unique<GetNameInfoReqWrap>(env, req_wrap_obj);
+
+  TRACE_EVENT_NESTABLE_ASYNC_BEGIN2(
+      TRACING_CATEGORY_NODE2(dns, native), "lookupService", req_wrap.get(),
+      "ip", TRACE_STR_COPY(*ip), "port", port);
 
   int err = req_wrap->Dispatch(uv_getnameinfo,
                                AfterGetNameInfo,
                                reinterpret_cast<struct sockaddr*>(&addr),
                                NI_NAMEREQD);
-  if (err)
-    delete req_wrap;
+  if (err == 0)
+    // Release ownership of the pointer allowing the ownership to be transferred
+    USE(req_wrap.release());
 
   args.GetReturnValue().Set(err);
 }
@@ -1988,10 +2051,12 @@ void GetServers(const FunctionCallbackInfo<Value>& args) {
     CHECK_EQ(err, 0);
 
     Local<Array> ret = Array::New(env->isolate(), 2);
-    ret->Set(0, OneByteString(env->isolate(), ip));
-    ret->Set(1, Integer::New(env->isolate(), cur->udp_port));
+    ret->Set(env->context(), 0, OneByteString(env->isolate(), ip)).FromJust();
+    ret->Set(env->context(),
+             1,
+             Integer::New(env->isolate(), cur->udp_port)).FromJust();
 
-    server_array->Set(i, ret);
+    server_array->Set(env->context(), i, ret).FromJust();
   }
 
   ares_free_data(servers);
@@ -2086,6 +2151,9 @@ void Cancel(const FunctionCallbackInfo<Value>& args) {
   ChannelWrap* channel;
   ASSIGN_OR_RETURN_UNWRAP(&channel, args.Holder());
 
+  TRACE_EVENT_INSTANT0(TRACING_CATEGORY_NODE2(dns, native),
+      "cancel", TRACE_EVENT_SCOPE_THREAD);
+
   ares_cancel(channel->cares_channel());
 }
 
@@ -2102,55 +2170,64 @@ void StrError(const FunctionCallbackInfo<Value>& args) {
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,
-                Local<Context> context) {
+                Local<Context> context,
+                void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
   env->SetMethod(target, "getaddrinfo", GetAddrInfo);
   env->SetMethod(target, "getnameinfo", GetNameInfo);
-  env->SetMethod(target, "isIPv6", IsIPv6);
-  env->SetMethod(target, "canonicalizeIP", CanonicalizeIP);
+  env->SetMethodNoSideEffect(target, "canonicalizeIP", CanonicalizeIP);
 
   env->SetMethod(target, "strerror", StrError);
 
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "AF_INET"),
-              Integer::New(env->isolate(), AF_INET));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "AF_INET6"),
-              Integer::New(env->isolate(), AF_INET6));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "AF_UNSPEC"),
-              Integer::New(env->isolate(), AF_UNSPEC));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "AI_ADDRCONFIG"),
-              Integer::New(env->isolate(), AI_ADDRCONFIG));
-  target->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "AI_V4MAPPED"),
-              Integer::New(env->isolate(), AI_V4MAPPED));
+  target->Set(env->context(), FIXED_ONE_BYTE_STRING(env->isolate(), "AF_INET"),
+              Integer::New(env->isolate(), AF_INET)).FromJust();
+  target->Set(env->context(), FIXED_ONE_BYTE_STRING(env->isolate(), "AF_INET6"),
+              Integer::New(env->isolate(), AF_INET6)).FromJust();
+  target->Set(env->context(), FIXED_ONE_BYTE_STRING(env->isolate(),
+                                                    "AF_UNSPEC"),
+              Integer::New(env->isolate(), AF_UNSPEC)).FromJust();
+  target->Set(env->context(), FIXED_ONE_BYTE_STRING(env->isolate(),
+                                                    "AI_ADDRCONFIG"),
+              Integer::New(env->isolate(), AI_ADDRCONFIG)).FromJust();
+  target->Set(env->context(), FIXED_ONE_BYTE_STRING(env->isolate(),
+                                                    "AI_V4MAPPED"),
+              Integer::New(env->isolate(), AI_V4MAPPED)).FromJust();
 
   Local<FunctionTemplate> aiw =
       BaseObject::MakeLazilyInitializedJSTemplate(env);
-  AsyncWrap::AddWrapMethods(env, aiw);
+  aiw->Inherit(AsyncWrap::GetConstructorTemplate(env));
   Local<String> addrInfoWrapString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "GetAddrInfoReqWrap");
   aiw->SetClassName(addrInfoWrapString);
-  target->Set(addrInfoWrapString, aiw->GetFunction());
+  target->Set(env->context(),
+              addrInfoWrapString,
+              aiw->GetFunction(context).ToLocalChecked()).FromJust();
 
   Local<FunctionTemplate> niw =
       BaseObject::MakeLazilyInitializedJSTemplate(env);
-  AsyncWrap::AddWrapMethods(env, niw);
+  niw->Inherit(AsyncWrap::GetConstructorTemplate(env));
   Local<String> nameInfoWrapString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "GetNameInfoReqWrap");
   niw->SetClassName(nameInfoWrapString);
-  target->Set(nameInfoWrapString, niw->GetFunction());
+  target->Set(env->context(),
+              nameInfoWrapString,
+              niw->GetFunction(context).ToLocalChecked()).FromJust();
 
   Local<FunctionTemplate> qrw =
       BaseObject::MakeLazilyInitializedJSTemplate(env);
-  AsyncWrap::AddWrapMethods(env, qrw);
+  qrw->Inherit(AsyncWrap::GetConstructorTemplate(env));
   Local<String> queryWrapString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "QueryReqWrap");
   qrw->SetClassName(queryWrapString);
-  target->Set(queryWrapString, qrw->GetFunction());
+  target->Set(env->context(),
+              queryWrapString,
+              qrw->GetFunction(context).ToLocalChecked()).FromJust();
 
   Local<FunctionTemplate> channel_wrap =
       env->NewFunctionTemplate(ChannelWrap::New);
   channel_wrap->InstanceTemplate()->SetInternalFieldCount(1);
-  AsyncWrap::AddWrapMethods(env, channel_wrap);
+  channel_wrap->Inherit(AsyncWrap::GetConstructorTemplate(env));
 
   env->SetProtoMethod(channel_wrap, "queryAny", Query<QueryAnyWrap>);
   env->SetProtoMethod(channel_wrap, "queryA", Query<QueryAWrap>);
@@ -2165,18 +2242,19 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(channel_wrap, "querySoa", Query<QuerySoaWrap>);
   env->SetProtoMethod(channel_wrap, "getHostByAddr", Query<GetHostByAddrWrap>);
 
-  env->SetProtoMethod(channel_wrap, "getServers", GetServers);
+  env->SetProtoMethodNoSideEffect(channel_wrap, "getServers", GetServers);
   env->SetProtoMethod(channel_wrap, "setServers", SetServers);
   env->SetProtoMethod(channel_wrap, "cancel", Cancel);
 
   Local<String> channelWrapString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "ChannelWrap");
   channel_wrap->SetClassName(channelWrapString);
-  target->Set(channelWrapString, channel_wrap->GetFunction());
+  target->Set(env->context(), channelWrapString,
+              channel_wrap->GetFunction(context).ToLocalChecked()).FromJust();
 }
 
 }  // anonymous namespace
 }  // namespace cares_wrap
 }  // namespace node
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(cares_wrap, node::cares_wrap::Initialize)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(cares_wrap, node::cares_wrap::Initialize)

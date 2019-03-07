@@ -21,6 +21,9 @@ A resource can also be closed before the callback is called. `AsyncHook` does
 not explicitly distinguish between these different cases but will represent them
 as the abstract concept that is a resource.
 
+If [`Worker`][]s are used, each thread has an independent `async_hooks`
+interface, and each thread will use a new set of async IDs.
+
 ## Public API
 
 ### Overview
@@ -58,15 +61,15 @@ asyncHook.disable();
 // resource referenced by "asyncId" may not have been populated.
 function init(asyncId, type, triggerAsyncId, resource) { }
 
-// before is called just before the resource's callback is called. It can be
+// Before is called just before the resource's callback is called. It can be
 // called 0-N times for handles (e.g. TCPWrap), and will be called exactly 1
-// time for requests (e.g. FSReqWrap).
+// time for requests (e.g. FSReqCallback).
 function before(asyncId) { }
 
-// after is called just after the resource's callback has finished.
+// After is called just after the resource's callback has finished.
 function after(asyncId) { }
 
-// destroy is called when an AsyncWrap instance is destroyed.
+// Destroy is called when an AsyncWrap instance is destroyed.
 function destroy(asyncId) { }
 
 // promiseResolve is called only for promise resources, when the
@@ -147,17 +150,17 @@ Because printing to the console is an asynchronous operation, `console.log()`
 will cause the AsyncHooks callbacks to be called. Using `console.log()` or
 similar asynchronous operations inside an AsyncHooks callback function will thus
 cause an infinite recursion. An easy solution to this when debugging is to use a
-synchronous logging operation such as `fs.writeSync(1, msg)`. This will print to
-stdout because `1` is the file descriptor for stdout and will not invoke
-AsyncHooks recursively because it is synchronous.
+synchronous logging operation such as `fs.writeFileSync(file, msg, flag)`.
+This will print to the file and will not invoke AsyncHooks recursively because
+it is synchronous.
 
 ```js
 const fs = require('fs');
 const util = require('util');
 
 function debug(...args) {
-  // use a function like this one when debugging inside an AsyncHooks callback
-  fs.writeSync(1, `${util.format(...args)}\n`);
+  // Use a function like this one when debugging inside an AsyncHooks callback
+  fs.writeFileSync('log.out', `${util.format(...args)}\n`, { flag: 'a' });
 }
 ```
 
@@ -224,7 +227,7 @@ clearTimeout(setTimeout(() => {}, 10));
 ```
 
 Every new resource is assigned an ID that is unique within the scope of the
-current process.
+current Node.js instance.
 
 ###### `type`
 
@@ -233,11 +236,11 @@ The `type` is a string identifying the type of resource that caused
 resource's constructor.
 
 ```text
-FSEVENTWRAP, FSREQWRAP, GETADDRINFOREQWRAP, GETNAMEINFOREQWRAP, HTTPPARSER,
+FSEVENTWRAP, FSREQCALLBACK, GETADDRINFOREQWRAP, GETNAMEINFOREQWRAP, HTTPPARSER,
 JSSTREAM, PIPECONNECTWRAP, PIPEWRAP, PROCESSWRAP, QUERYWRAP, SHUTDOWNWRAP,
-SIGNALWRAP, STATWATCHER, TCPCONNECTWRAP, TCPSERVER, TCPWRAP, TIMERWRAP, TTYWRAP,
+SIGNALWRAP, STATWATCHER, TCPCONNECTWRAP, TCPSERVERWRAP, TCPWRAP, TTYWRAP,
 UDPSENDWRAP, UDPWRAP, WRITEWRAP, ZLIB, SSLCONNECTION, PBKDF2REQUEST,
-RANDOMBYTESREQUEST, TLSWRAP, Timeout, Immediate, TickObject
+RANDOMBYTESREQUEST, TLSWRAP, Microtask, Timeout, Immediate, TickObject
 ```
 
 There is also the `PROMISE` resource type, which is used to track `Promise`
@@ -273,8 +276,8 @@ require('net').createServer((conn) => {}).listen(8080);
 Output when hitting the server with `nc localhost 8080`:
 
 ```console
-TCPSERVERWRAP(2): trigger: 1 execution: 1
-TCPWRAP(4): trigger: 2 execution: 0
+TCPSERVERWRAP(5): trigger: 1 execution: 1
+TCPWRAP(7): trigger: 5 execution: 0
 ```
 
 The `TCPSERVERWRAP` is the server which receives the connections.
@@ -293,13 +296,12 @@ of propagating what resource is responsible for the new resource's existence.
 been initialized. This can contain useful information that can vary based on
 the value of `type`. For instance, for the `GETADDRINFOREQWRAP` resource type,
 `resource` provides the hostname used when looking up the IP address for the
-hostname in `net.Server.listen()`. The API for accessing this information is
+host in `net.Server.listen()`. The API for accessing this information is
 currently not considered public, but using the Embedder API, users can provide
 and document their own resource objects. For example, such a resource object
 could contain the SQL query being executed.
 
-In the case of Promises, the `resource` object will have `promise` property
-that refers to the `Promise` that is being initialized, and an
+In the case of Promises, the `resource` object will have an
 `isChainedPromise` property, set to `true` if the promise has a parent promise,
 and `false` otherwise. For example, in the case of `b = a.then(handler)`, `a` is
 considered a parent `Promise` of `b`. Here, `b` is considered a chained promise.
@@ -327,17 +329,20 @@ async_hooks.createHook({
   },
   before(asyncId) {
     const indentStr = ' '.repeat(indent);
-    fs.writeSync(1, `${indentStr}before:  ${asyncId}\n`);
+    fs.writeFileSync('log.out',
+                     `${indentStr}before:  ${asyncId}\n`, { flag: 'a' });
     indent += 2;
   },
   after(asyncId) {
     indent -= 2;
     const indentStr = ' '.repeat(indent);
-    fs.writeSync(1, `${indentStr}after:   ${asyncId}\n`);
+    fs.writeFileSync('log.out',
+                     `${indentStr}after:  ${asyncId}\n`, { flag: 'a' });
   },
   destroy(asyncId) {
     const indentStr = ' '.repeat(indent);
-    fs.writeSync(1, `${indentStr}destroy: ${asyncId}\n`);
+    fs.writeFileSync('log.out',
+                     `${indentStr}destroy:  ${asyncId}\n`, { flag: 'a' });
   },
 }).enable();
 
@@ -352,27 +357,18 @@ require('net').createServer(() => {}).listen(8080, () => {
 Output from only starting the server:
 
 ```console
-TCPSERVERWRAP(2): trigger: 1 execution: 1
-TickObject(3): trigger: 2 execution: 1
-before:  3
-  Timeout(4): trigger: 3 execution: 3
-  TIMERWRAP(5): trigger: 3 execution: 3
-after:   3
-destroy: 3
-before:  5
-  before:  4
-    TTYWRAP(6): trigger: 4 execution: 4
-    SIGNALWRAP(7): trigger: 4 execution: 4
-    TTYWRAP(8): trigger: 4 execution: 4
->>> 4
-    TickObject(9): trigger: 4 execution: 4
-  after:   4
-after:   5
-before:  9
-after:   9
-destroy: 4
-destroy: 9
-destroy: 5
+TCPSERVERWRAP(5): trigger: 1 execution: 1
+TickObject(6): trigger: 5 execution: 1
+before:  6
+  Timeout(7): trigger: 6 execution: 6
+after:   6
+destroy: 6
+before:  7
+>>> 7
+  TickObject(8): trigger: 7 execution: 7
+after:   7
+before:  8
+after:   8
 ```
 
 As illustrated in the example, `executionAsyncId()` and `execution` each specify
@@ -382,7 +378,7 @@ the value of the current execution context; which is delineated by calls to
 Only using `execution` to graph resource allocation results in the following:
 
 ```console
-TTYWRAP(6) -> Timeout(4) -> TIMERWRAP(5) -> TickObject(3) -> root(1)
+Timeout(7) -> TickObject(6) -> root(1)
 ```
 
 The `TCPSERVERWRAP` is not part of this graph, even though it was the reason for
@@ -485,13 +481,12 @@ The ID returned from `executionAsyncId()` is related to execution timing, not
 causality (which is covered by `triggerAsyncId()`):
 
 ```js
-const server = net.createServer(function onConnection(conn) {
+const server = net.createServer((conn) => {
   // Returns the ID of the server, not of the new connection, because the
-  // onConnection callback runs in the execution scope of the server's
-  // MakeCallback().
+  // callback runs in the execution scope of the server's MakeCallback().
   async_hooks.executionAsyncId();
 
-}).listen(port, function onListening() {
+}).listen(port, () => {
   // Returns the ID of a TickObject (i.e. process.nextTick()) because all
   // callbacks passed to .listen() are wrapped in a nextTick().
   async_hooks.executionAsyncId();
@@ -531,8 +526,6 @@ expensive nature of the [promise introspection API][PromiseHooks] provided by
 V8. This means that programs using promises or `async`/`await` will not get
 correct execution and trigger ids for promise callback contexts by default.
 
-Here's an example:
-
 ```js
 const ah = require('async_hooks');
 Promise.resolve(1729).then(() => {
@@ -548,7 +541,7 @@ the `triggerAsyncId` value is `0`, which means that we are missing context about
 the resource that caused (triggered) the `then()` callback to be executed.
 
 Installing async hooks via `async_hooks.createHook` enables promise execution
-tracking. Example:
+tracking:
 
 ```js
 const ah = require('async_hooks');
@@ -615,14 +608,6 @@ asyncResource.asyncId();
 
 // Return the trigger ID for the AsyncResource instance.
 asyncResource.triggerAsyncId();
-
-// Call AsyncHooks before callbacks.
-// Deprecated: Use asyncResource.runInAsyncScope instead.
-asyncResource.emitBefore();
-
-// Call AsyncHooks after callbacks.
-// Deprecated: Use asyncResource.runInAsyncScope instead.
-asyncResource.emitAfter();
 ```
 
 #### new AsyncResource(type[, options])
@@ -711,6 +696,8 @@ alternative.
 
 #### asyncResource.emitDestroy()
 
+* Returns: {AsyncResource} A reference to `asyncResource`.
+
 Call all `destroy` hooks. This should only ever be called once. An error will
 be thrown if it is called more than once. This **must** be manually called. If
 the resource is left to be collected by the GC then the `destroy` hooks will
@@ -731,5 +718,6 @@ never be called.
 [`destroy` callback]: #async_hooks_destroy_asyncid
 [`init` callback]: #async_hooks_init_asyncid_type_triggerasyncid_resource
 [Hook Callbacks]: #async_hooks_hook_callbacks
-[PromiseHooks]: https://docs.google.com/document/d/1rda3yKGHimKIhg5YeoAmCOtyURgsbTH_qaYR79FELlk
+[PromiseHooks]: https://docs.google.com/document/d/1rda3yKGHimKIhg5YeoAmCOtyURgsbTH_qaYR79FELlk/edit
+[`Worker`]: worker_threads.html#worker_threads_class_worker
 [promise execution tracking]: #async_hooks_promise_execution_tracking

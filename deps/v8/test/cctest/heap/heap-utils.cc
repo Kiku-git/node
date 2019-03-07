@@ -9,16 +9,15 @@
 #include "src/heap/incremental-marking.h"
 #include "src/heap/mark-compact.h"
 #include "src/isolate.h"
+#include "test/cctest/cctest.h"
 
 namespace v8 {
 namespace internal {
 namespace heap {
 
 void SealCurrentObjects(Heap* heap) {
-  heap->CollectAllGarbage(Heap::kFinalizeIncrementalMarkingMask,
-                          GarbageCollectionReason::kTesting);
-  heap->CollectAllGarbage(Heap::kFinalizeIncrementalMarkingMask,
-                          GarbageCollectionReason::kTesting);
+  CcTest::CollectAllGarbage();
+  CcTest::CollectAllGarbage();
   heap->mark_compact_collector()->EnsureSweepingCompleted();
   heap->old_space()->FreeLinearAllocationArea();
   for (Page* page : *heap->old_space()) {
@@ -95,7 +94,7 @@ std::vector<Handle<FixedArray>> CreatePadding(Heap* heap, int padding_size,
       }
     }
     handles.push_back(isolate->factory()->NewFixedArray(length, tenure));
-    CHECK((tenure == NOT_TENURED && heap->InNewSpace(*handles.back())) ||
+    CHECK((tenure == NOT_TENURED && Heap::InNewSpace(*handles.back())) ||
           (tenure == TENURED && heap->InOldSpace(*handles.back())));
     free_memory -= allocate_memory;
   }

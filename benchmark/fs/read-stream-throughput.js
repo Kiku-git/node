@@ -1,4 +1,4 @@
-// test the throughput of the fs.WriteStream class.
+// Test the throughput of the fs.WriteStream class.
 'use strict';
 
 const path = require('path');
@@ -45,17 +45,17 @@ function runTest() {
     encoding: encoding
   });
 
-  rs.on('open', function() {
+  rs.on('open', () => {
     bench.start();
   });
 
   var bytes = 0;
-  rs.on('data', function(chunk) {
+  rs.on('data', (chunk) => {
     bytes += chunk.length;
   });
 
-  rs.on('end', function() {
-    try { fs.unlinkSync(filename); } catch (e) {}
+  rs.on('end', () => {
+    try { fs.unlinkSync(filename); } catch {}
     // MB/sec
     bench.end(bytes / (1024 * 1024));
   });
@@ -74,7 +74,7 @@ function makeFile() {
     buf.fill('x');
   }
 
-  try { fs.unlinkSync(filename); } catch (e) {}
+  try { fs.unlinkSync(filename); } catch {}
   var w = 1024;
   const ws = fs.createWriteStream(filename);
   ws.on('close', runTest);

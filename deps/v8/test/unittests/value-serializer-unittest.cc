@@ -8,7 +8,7 @@
 #include <string>
 
 #include "include/v8.h"
-#include "src/api.h"
+#include "src/api-inl.h"
 #include "src/base/build_config.h"
 #include "src/objects-inl.h"
 #include "src/wasm/wasm-objects.h"
@@ -58,7 +58,7 @@ class ValueSerializerTest : public TestWithIsolate {
     isolate_ = reinterpret_cast<i::Isolate*>(isolate());
   }
 
-  ~ValueSerializerTest() {
+  ~ValueSerializerTest() override {
     // In some cases unhandled scheduled exceptions from current test produce
     // that Context::New(isolate()) from next test's constructor returns NULL.
     // In order to prevent that, we added destructor which will clear scheduled
@@ -228,7 +228,7 @@ class ValueSerializerTest : public TestWithIsolate {
     Local<Script> script =
         Script::Compile(deserialization_context_, source).ToLocalChecked();
     Local<Value> value = script->Run(deserialization_context_).ToLocalChecked();
-    EXPECT_TRUE(value->BooleanValue(deserialization_context_).FromJust());
+    EXPECT_TRUE(value->BooleanValue(isolate()));
   }
 
   Local<String> StringFromUtf8(const char* source) {
@@ -1689,12 +1689,12 @@ TEST_F(ValueSerializerTest, RoundTripTypedArray) {
   // Check that the right type comes out the other side for every kind of typed
   // array.
   Local<Value> value;
-#define TYPED_ARRAY_ROUND_TRIP_TEST(Type, type, TYPE, ctype, size) \
-  value = RoundTripTest("new " #Type "Array(2)");                  \
-  ASSERT_TRUE(value->Is##Type##Array());                           \
-  EXPECT_EQ(2u * size, TypedArray::Cast(*value)->ByteLength());    \
-  EXPECT_EQ(2u, TypedArray::Cast(*value)->Length());               \
-  ExpectScriptTrue("Object.getPrototypeOf(result) === " #Type      \
+#define TYPED_ARRAY_ROUND_TRIP_TEST(Type, type, TYPE, ctype)             \
+  value = RoundTripTest("new " #Type "Array(2)");                        \
+  ASSERT_TRUE(value->Is##Type##Array());                                 \
+  EXPECT_EQ(2u * sizeof(ctype), TypedArray::Cast(*value)->ByteLength()); \
+  EXPECT_EQ(2u, TypedArray::Cast(*value)->Length());                     \
+  ExpectScriptTrue("Object.getPrototypeOf(result) === " #Type            \
                    "Array.prototype");
 
   TYPED_ARRAYS(TYPED_ARRAY_ROUND_TRIP_TEST)
@@ -1868,6 +1868,22 @@ TEST_F(ValueSerializerTest, DecodeDataView) {
   EXPECT_EQ(2u, DataView::Cast(*value)->ByteLength());
   EXPECT_EQ(4u, DataView::Cast(*value)->Buffer()->ByteLength());
   ExpectScriptTrue("Object.getPrototypeOf(result) === DataView.prototype");
+}
+
+TEST_F(ValueSerializerTest, DecodeArrayWithLengthProperty1) {
+  ASSERT_DEATH_IF_SUPPORTED(
+      DecodeTest({0xff, 0x0d, 0x41, 0x03, 0x49, 0x02, 0x49, 0x04,
+                  0x49, 0x06, 0x22, 0x06, 0x6c, 0x65, 0x6e, 0x67,
+                  0x74, 0x68, 0x49, 0x02, 0x24, 0x01, 0x03}),
+      ".*LookupIterator::NOT_FOUND == it.state\\(\\).*");
+}
+
+TEST_F(ValueSerializerTest, DecodeArrayWithLengthProperty2) {
+  ASSERT_DEATH_IF_SUPPORTED(
+      DecodeTest({0xff, 0x0d, 0x41, 0x03, 0x49, 0x02, 0x49, 0x04,
+                  0x49, 0x06, 0x22, 0x06, 0x6c, 0x65, 0x6e, 0x67,
+                  0x74, 0x68, 0x6f, 0x7b, 0x00, 0x24, 0x01, 0x03}),
+      ".*LookupIterator::NOT_FOUND == it.state\\(\\).*");
 }
 
 TEST_F(ValueSerializerTest, DecodeInvalidDataView) {
@@ -2514,7 +2530,8 @@ TEST_F(ValueSerializerTestWithWasm, DefaultSerializationDelegate) {
   Local<Message> message = InvalidEncodeTest(MakeWasm());
   size_t msg_len = static_cast<size_t>(message->Get()->Length());
   std::unique_ptr<char[]> buff(new char[msg_len + 1]);
-  message->Get()->WriteOneByte(reinterpret_cast<uint8_t*>(buff.get()));
+  message->Get()->WriteOneByte(isolate(),
+                               reinterpret_cast<uint8_t*>(buff.get()));
   // the message ends with the custom error string
   size_t custom_msg_len = strlen(kUnsupportedSerialization);
   ASSERT_GE(msg_len, custom_msg_len);

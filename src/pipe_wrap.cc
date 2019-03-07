@@ -27,8 +27,6 @@
 #include "handle_wrap.h"
 #include "node.h"
 #include "node_buffer.h"
-#include "node_internals.h"
-#include "node_wrap.h"
 #include "connect_wrap.h"
 #include "stream_base-inl.h"
 #include "stream_wrap.h"
@@ -44,31 +42,33 @@ using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Int32;
 using v8::Local;
+using v8::MaybeLocal;
 using v8::Object;
 using v8::String;
 using v8::Value;
 
 using AsyncHooks = Environment::AsyncHooks;
 
-
-Local<Object> PipeWrap::Instantiate(Environment* env,
-                                    AsyncWrap* parent,
-                                    PipeWrap::SocketType type) {
+MaybeLocal<Object> PipeWrap::Instantiate(Environment* env,
+                                         AsyncWrap* parent,
+                                         PipeWrap::SocketType type) {
   EscapableHandleScope handle_scope(env->isolate());
   AsyncHooks::DefaultTriggerAsyncIdScope trigger_scope(parent);
   CHECK_EQ(false, env->pipe_constructor_template().IsEmpty());
-  Local<Function> constructor = env->pipe_constructor_template()->GetFunction();
+  Local<Function> constructor = env->pipe_constructor_template()
+                                    ->GetFunction(env->context())
+                                    .ToLocalChecked();
   CHECK_EQ(false, constructor.IsEmpty());
   Local<Value> type_value = Int32::New(env->isolate(), type);
-  Local<Object> instance =
-      constructor->NewInstance(env->context(), 1, &type_value).ToLocalChecked();
-  return handle_scope.Escape(instance);
+  return handle_scope.EscapeMaybe(
+      constructor->NewInstance(env->context(), 1, &type_value));
 }
 
 
 void PipeWrap::Initialize(Local<Object> target,
                           Local<Value> unused,
-                          Local<Context> context) {
+                          Local<Context> context,
+                          void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
   Local<FunctionTemplate> t = env->NewFunctionTemplate(New);
@@ -76,18 +76,7 @@ void PipeWrap::Initialize(Local<Object> target,
   t->SetClassName(pipeString);
   t->InstanceTemplate()->SetInternalFieldCount(1);
 
-  AsyncWrap::AddWrapMethods(env, t);
-
-  env->SetProtoMethod(t, "close", HandleWrap::Close);
-  env->SetProtoMethod(t, "unref", HandleWrap::Unref);
-  env->SetProtoMethod(t, "ref", HandleWrap::Ref);
-  env->SetProtoMethod(t, "hasRef", HandleWrap::HasRef);
-
-#ifdef _WIN32
-  LibuvStreamWrap::AddMethods(env, t);
-#else
-  LibuvStreamWrap::AddMethods(env, t, StreamBase::kFlagHasWritev);
-#endif
+  t->Inherit(LibuvStreamWrap::GetConstructorTemplate(env));
 
   env->SetProtoMethod(t, "bind", Bind);
   env->SetProtoMethod(t, "listen", Listen);
@@ -100,16 +89,20 @@ void PipeWrap::Initialize(Local<Object> target,
 
   env->SetProtoMethod(t, "fchmod", Fchmod);
 
-  target->Set(pipeString, t->GetFunction());
+  target->Set(env->context(),
+              pipeString,
+              t->GetFunction(env->context()).ToLocalChecked()).FromJust();
   env->set_pipe_constructor_template(t);
 
   // Create FunctionTemplate for PipeConnectWrap.
   auto cwt = BaseObject::MakeLazilyInitializedJSTemplate(env);
-  AsyncWrap::AddWrapMethods(env, cwt);
+  cwt->Inherit(AsyncWrap::GetConstructorTemplate(env));
   Local<String> wrapString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "PipeConnectWrap");
   cwt->SetClassName(wrapString);
-  target->Set(wrapString, cwt->GetFunction());
+  target->Set(env->context(),
+              wrapString,
+              cwt->GetFunction(env->context()).ToLocalChecked()).FromJust();
 
   // Define constants
   Local<Object> constants = Object::New(env->isolate());
@@ -119,7 +112,7 @@ void PipeWrap::Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, UV_READABLE);
   NODE_DEFINE_CONSTANT(constants, UV_WRITABLE);
   target->Set(context,
-              FIXED_ONE_BYTE_STRING(env->isolate(), "constants"),
+              env->constants_string(),
               constants).FromJust();
 }
 
@@ -182,7 +175,8 @@ void PipeWrap::Bind(const FunctionCallbackInfo<Value>& args) {
 void PipeWrap::SetPendingInstances(const FunctionCallbackInfo<Value>& args) {
   PipeWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
-  int instances = args[0]->Int32Value();
+  CHECK(args[0]->IsInt32());
+  int instances = args[0].As<Int32>()->Value();
   uv_pipe_pending_instances(&wrap->handle_, instances);
 }
 #endif
@@ -193,8 +187,7 @@ void PipeWrap::Fchmod(const v8::FunctionCallbackInfo<v8::Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
   CHECK(args[0]->IsInt32());
   int mode = args[0].As<Int32>()->Value();
-  int err = uv_pipe_chmod(reinterpret_cast<uv_pipe_t*>(&wrap->handle_),
-                          mode);
+  int err = uv_pipe_chmod(&wrap->handle_, mode);
   args.GetReturnValue().Set(err);
 }
 
@@ -202,7 +195,9 @@ void PipeWrap::Fchmod(const v8::FunctionCallbackInfo<v8::Value>& args) {
 void PipeWrap::Listen(const FunctionCallbackInfo<Value>& args) {
   PipeWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
-  int backlog = args[0]->Int32Value();
+  Environment* env = wrap->env();
+  int backlog;
+  if (!args[0]->Int32Value(env->context()).To(&backlog)) return;
   int err = uv_listen(reinterpret_cast<uv_stream_t*>(&wrap->handle_),
                       backlog,
                       OnConnection);
@@ -216,7 +211,8 @@ void PipeWrap::Open(const FunctionCallbackInfo<Value>& args) {
   PipeWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
 
-  int fd = args[0]->Int32Value();
+  int fd;
+  if (!args[0]->Int32Value(env->context()).To(&fd)) return;
 
   int err = uv_pipe_open(&wrap->handle_, fd);
   wrap->set_fd(fd);
@@ -251,4 +247,4 @@ void PipeWrap::Connect(const FunctionCallbackInfo<Value>& args) {
 
 }  // namespace node
 
-NODE_BUILTIN_MODULE_CONTEXT_AWARE(pipe_wrap, node::PipeWrap::Initialize)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(pipe_wrap, node::PipeWrap::Initialize)

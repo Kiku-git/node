@@ -17,7 +17,10 @@ function test(data, only, expected) {
     only = undefined;
   }
   console.table(data, only);
-  assert.strictEqual(queue.shift(), expected.trimLeft());
+  assert.deepStrictEqual(
+    queue.shift().split('\n'),
+    expected.trimLeft().split('\n')
+  );
 }
 
 common.expectsError(() => console.table([], false), {
@@ -49,6 +52,15 @@ test([Symbol(), 5, [10]], `
 │    1    │    │    5     │
 │    2    │ 10 │          │
 └─────────┴────┴──────────┘
+`);
+
+test([null, 5], `
+┌─────────┬────────┐
+│ (index) │ Values │
+├─────────┼────────┤
+│    0    │  null  │
+│    1    │   5    │
+└─────────┴────────┘
 `);
 
 test([undefined, 5], `
@@ -117,6 +129,26 @@ test(new Map([[1, 1], [2, 2], [3, 3]]).entries(), `
 └───────────────────┴─────┴────────┘
 `);
 
+test(new Map([[1, 1], [2, 2], [3, 3]]).values(), `
+┌───────────────────┬────────┐
+│ (iteration index) │ Values │
+├───────────────────┼────────┤
+│         0         │   1    │
+│         1         │   2    │
+│         2         │   3    │
+└───────────────────┴────────┘
+`);
+
+test(new Map([[1, 1], [2, 2], [3, 3]]).keys(), `
+┌───────────────────┬────────┐
+│ (iteration index) │ Values │
+├───────────────────┼────────┤
+│         0         │   1    │
+│         1         │   2    │
+│         2         │   3    │
+└───────────────────┴────────┘
+`);
+
 test(new Set([1, 2, 3]).values(), `
 ┌───────────────────┬────────┐
 │ (iteration index) │ Values │
@@ -134,6 +166,14 @@ test({ a: { a: 1, b: 2, c: 3 } }, `
 ├─────────┼───┼───┼───┤
 │    a    │ 1 │ 2 │ 3 │
 └─────────┴───┴───┴───┘
+`);
+
+test({ a: { a: { a: 1, b: 2, c: 3 } } }, `
+┌─────────┬──────────┐
+│ (index) │    a     │
+├─────────┼──────────┤
+│    a    │ [Object] │
+└─────────┴──────────┘
 `);
 
 test({ a: [1, 2] }, `

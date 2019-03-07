@@ -11,6 +11,9 @@ if (common.isWindows) {
   return;
 }
 
+if (!common.isMainThread)
+  return;
+
 assert.throws(() => {
   process.seteuid({});
 }, {

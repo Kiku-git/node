@@ -22,8 +22,8 @@ namespace interpreter {
 
 class BytecodeArrayBuilderTest : public TestWithIsolateAndZone {
  public:
-  BytecodeArrayBuilderTest() {}
-  ~BytecodeArrayBuilderTest() override {}
+  BytecodeArrayBuilderTest() = default;
+  ~BytecodeArrayBuilderTest() override = default;
 };
 
 using ToBooleanMode = BytecodeArrayBuilder::ToBooleanMode;
@@ -134,9 +134,12 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
 
   // Emit load / store property operations.
   builder.LoadNamedProperty(reg, name, load_slot.ToInt())
+      .LoadNamedPropertyNoFeedback(reg, name)
       .LoadKeyedProperty(reg, keyed_load_slot.ToInt())
       .StoreNamedProperty(reg, name, sloppy_store_slot.ToInt(),
                           LanguageMode::kSloppy)
+      .StoreNamedPropertyNoFeedback(reg, name, LanguageMode::kStrict)
+      .StoreNamedPropertyNoFeedback(reg, name, LanguageMode::kSloppy)
       .StoreKeyedProperty(reg, reg, sloppy_keyed_store_slot.ToInt(),
                           LanguageMode::kSloppy)
       .StoreNamedProperty(reg, name, strict_store_slot.ToInt(),
@@ -168,9 +171,9 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
 
   // Emit create context operation.
   builder.CreateBlockContext(&scope);
-  builder.CreateCatchContext(reg, name, &scope);
-  builder.CreateFunctionContext(1);
-  builder.CreateEvalContext(1);
+  builder.CreateCatchContext(reg, &scope);
+  builder.CreateFunctionContext(&scope, 1);
+  builder.CreateEvalContext(&scope, 1);
   builder.CreateWithContext(reg, &scope);
 
   // Emit literal creation operations.
@@ -193,8 +196,9 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .CallUndefinedReceiver(reg, pair, 1)
       .CallRuntime(Runtime::kIsArray, reg)
       .CallRuntimeForPair(Runtime::kLoadLookupSlotForCall, reg_list, pair)
-      .CallJSRuntime(Context::OBJECT_IS_FROZEN, reg_list)
-      .CallWithSpread(reg, reg_list, 1);
+      .CallJSRuntime(Context::OBJECT_CREATE, reg_list)
+      .CallWithSpread(reg, reg_list, 1)
+      .CallNoFeedback(reg, reg_list);
 
   // Emit binary operator invocations.
   builder.BinaryOperation(Token::Value::ADD, reg, 1)
@@ -249,7 +253,6 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
   // Emit test operator invocations.
   builder.CompareOperation(Token::Value::EQ, reg, 1)
       .CompareOperation(Token::Value::EQ_STRICT, reg, 2)
-      .CompareOperation(Token::Value::EQ_STRICT, reg)
       .CompareOperation(Token::Value::LT, reg, 3)
       .CompareOperation(Token::Value::GT, reg, 4)
       .CompareOperation(Token::Value::LTE, reg, 5)
@@ -257,6 +260,7 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .CompareTypeOf(TestTypeOfFlags::LiteralFlag::kNumber)
       .CompareOperation(Token::Value::INSTANCEOF, reg, 7)
       .CompareOperation(Token::Value::IN, reg)
+      .CompareReference(reg)
       .CompareUndetectable()
       .CompareUndefined()
       .CompareNull();
@@ -375,8 +379,10 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .CreateRegExpLiteral(ast_factory.GetOneByteString("wide_literal"), 0, 0)
       .CreateArrayLiteral(0, 0, 0)
       .CreateEmptyArrayLiteral(0)
+      .CreateArrayFromIterable()
       .CreateObjectLiteral(0, 0, 0, reg)
-      .CreateEmptyObjectLiteral();
+      .CreateEmptyObjectLiteral()
+      .CloneObject(reg, 0, 0);
 
   // Emit load and store operations for module variables.
   builder.LoadModuleVariable(-1, 42)
@@ -630,7 +636,7 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
   iterator.Advance();
 
   CHECK_EQ(iterator.current_bytecode(), Bytecode::kJumpConstant);
-  CHECK_EQ(*iterator.GetConstantForIndexOperand(0),
+  CHECK_EQ(iterator.GetConstantForIndexOperand(0),
            Smi::FromInt(kFarJumpDistance));
   iterator.Advance();
 
@@ -638,7 +644,7 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
   iterator.Advance();
 
   CHECK_EQ(iterator.current_bytecode(), Bytecode::kJumpIfTrueConstant);
-  CHECK_EQ(*iterator.GetConstantForIndexOperand(0),
+  CHECK_EQ(iterator.GetConstantForIndexOperand(0),
            Smi::FromInt(kFarJumpDistance - 5));
   iterator.Advance();
 
@@ -646,7 +652,7 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
   iterator.Advance();
 
   CHECK_EQ(iterator.current_bytecode(), Bytecode::kJumpIfFalseConstant);
-  CHECK_EQ(*iterator.GetConstantForIndexOperand(0),
+  CHECK_EQ(iterator.GetConstantForIndexOperand(0),
            Smi::FromInt(kFarJumpDistance - 10));
   iterator.Advance();
 
@@ -654,7 +660,7 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
   iterator.Advance();
 
   CHECK_EQ(iterator.current_bytecode(), Bytecode::kJumpIfToBooleanTrueConstant);
-  CHECK_EQ(*iterator.GetConstantForIndexOperand(0),
+  CHECK_EQ(iterator.GetConstantForIndexOperand(0),
            Smi::FromInt(kFarJumpDistance - 15));
   iterator.Advance();
 
@@ -663,7 +669,7 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
 
   CHECK_EQ(iterator.current_bytecode(),
            Bytecode::kJumpIfToBooleanFalseConstant);
-  CHECK_EQ(*iterator.GetConstantForIndexOperand(0),
+  CHECK_EQ(iterator.GetConstantForIndexOperand(0),
            Smi::FromInt(kFarJumpDistance - 20));
   iterator.Advance();
 }

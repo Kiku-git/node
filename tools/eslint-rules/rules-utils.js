@@ -24,7 +24,7 @@ module.exports.isRequired = function(node, modules) {
 * Return true if common module is required
 * in AST Node under inspection
 */
-var commonModuleRegExp = new RegExp(/^(\.\.\/)*common(\.js)?$/);
+const commonModuleRegExp = new RegExp(/^(\.\.\/)*common(\.js)?$/);
 module.exports.isCommonModule = function(node) {
   return node.callee.name === 'require' &&
          node.arguments.length !== 0 &&
@@ -33,14 +33,15 @@ module.exports.isCommonModule = function(node) {
 
 /**
  * Returns true if any of the passed in modules are used in
- * binding calls.
+ * process.binding() or internalBinding() calls.
  */
 module.exports.isBinding = function(node, modules) {
-  if (node.callee.object) {
-    return node.callee.object.name === 'process' &&
-           node.callee.property.name === 'binding' &&
-           modules.includes(node.arguments[0].value);
-  }
+  const isProcessBinding = node.callee.object &&
+                           node.callee.object.name === 'process' &&
+                           node.callee.property.name === 'binding';
+
+  return (isProcessBinding || node.callee.name === 'internalBinding') &&
+         modules.includes(node.arguments[0].value);
 };
 
 /**
@@ -62,13 +63,13 @@ module.exports.usesCommonProperty = function(node, properties) {
  * and the block also has a call to skip.
  */
 module.exports.inSkipBlock = function(node) {
-  var hasSkipBlock = false;
+  let hasSkipBlock = false;
   if (node.test &&
       node.test.type === 'UnaryExpression' &&
       node.test.operator === '!') {
     const consequent = node.consequent;
     if (consequent.body) {
-      consequent.body.some(function(expressionStatement) {
+      consequent.body.some((expressionStatement) => {
         if (hasSkip(expressionStatement.expression)) {
           return hasSkipBlock = true;
         }

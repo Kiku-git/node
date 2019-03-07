@@ -61,11 +61,11 @@ server.once('request', common.mustCall((req, res) => {
 }));
 
 server.listen(0, function() {
-  // just make a request, other tests handle responses
-  http.get({ port: this.address().port }, function(res) {
+  // Just make a request, other tests handle responses
+  http.get({ port: this.address().port }, (res) => {
     res.resume();
     // do it again to test .end(Buffer);
-    http.get({ port: server.address().port }, function(res) {
+    http.get({ port: server.address().port }, (res) => {
       res.resume();
       server.close();
     });

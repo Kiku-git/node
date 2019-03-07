@@ -92,7 +92,7 @@ Node.js process and a cluster worker differs:
    the worker to use the supplied handle, rather than talk to the master
    process.
 3. `server.listen(0)` Normally, this will cause servers to listen on a
-   random port.  However, in a cluster, each worker will receive the
+   random port. However, in a cluster, each worker will receive the
    same "random" port each time they do `listen(0)`. In essence, the
    port is random the first time, but predictable thereafter. To listen
    on a unique port, generate a port number based on the cluster worker ID.
@@ -198,8 +198,8 @@ Within a worker, `process.on('message')` may also be used.
 
 See [`process` event: `'message'`][].
 
-As an example, here is a cluster that keeps count of the number of requests
-in the master process using the message system:
+Here is an example using the message system. It keeps a count in the master
+process of the number of HTTP requests received by the workers:
 
 ```js
 const cluster = require('cluster');
@@ -322,7 +322,7 @@ if (cluster.isMaster) {
 
   process.on('message', (msg) => {
     if (msg === 'shutdown') {
-      // initiate graceful close of any connections to server
+      // Initiate graceful close of any connections to server
     }
   });
 }
@@ -393,6 +393,11 @@ added: v0.9.12
 This function will kill the worker. In the master, it does this by disconnecting
 the `worker.process`, and once disconnected, killing with `signal`. In the
 worker, it does it by disconnecting the channel, and then exiting with code `0`.
+
+Because `kill()` attempts to gracefully disconnect the worker process, it is
+susceptible to waiting indefinitely for the disconnect to complete. For example,
+if the worker enters an infinite loop, a graceful disconnect will never occur.
+If the graceful disconnect behavior is not needed, use `worker.process.kill()`.
 
 Causes `.exitedAfterDisconnect` to be set.
 
@@ -761,8 +766,6 @@ Note that:
   the `env` passed to `.fork()`.
 * The defaults above apply to the first call only, the defaults for later
   calls is the current value at the time of `cluster.setupMaster()` is called.
-
-Example:
 
 ```js
 const cluster = require('cluster');

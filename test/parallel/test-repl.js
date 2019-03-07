@@ -22,11 +22,11 @@
 'use strict';
 const common = require('../common');
 const fixtures = require('../common/fixtures');
+const tmpdir = require('../common/tmpdir');
 const assert = require('assert');
 const net = require('net');
 const repl = require('repl');
-
-common.crashOnUnhandledRejection();
+const { inspect } = require('util');
 
 const message = 'Read, Eval, Print Loop';
 const prompt_unix = 'node via Unix socket> ';
@@ -48,19 +48,19 @@ async function runReplTests(socket, prompt, tests) {
   let lineBuffer = '';
 
   for (const { send, expect } of tests) {
-    // expect can be a single line or multiple lines
+    // Expect can be a single line or multiple lines
     const expectedLines = Array.isArray(expect) ? expect : [ expect ];
 
     console.error('out:', JSON.stringify(send));
     socket.write(`${send}\n`);
 
     for (let expectedLine of expectedLines) {
-      // special value: kSource refers to last sent source text
+      // Special value: kSource refers to last sent source text
       if (expectedLine === kSource)
         expectedLine = send;
 
       while (!lineBuffer.includes('\n')) {
-        lineBuffer += await event(socket, 'data');
+        lineBuffer += await event(socket, expect);
 
         // Cut away the initial prompt
         while (lineBuffer.startsWith(prompt))
@@ -126,7 +126,7 @@ const unixTests = [
 const strictModeTests = [
   {
     send: 'ref = 1',
-    expect: /^ReferenceError:\s/
+    expect: ['Thrown:', /^ReferenceError:\s/]
   }
 ];
 
@@ -134,7 +134,11 @@ const errorTests = [
   // Uncaught error throws and prints out
   {
     send: 'throw new Error(\'test error\');',
-    expect: /^Error: test error/
+    expect: ['Thrown:', 'Error: test error']
+  },
+  {
+    send: "throw { foo: 'bar' };",
+    expect: "Thrown: { foo: 'bar' }"
   },
   // Common syntax error is treated as multiline command
   {
@@ -149,7 +153,7 @@ const errorTests = [
   // But passing the same string to eval() should throw
   {
     send: 'eval("function test_func() {")',
-    expect: /^SyntaxError: /
+    expect: ['Thrown:', /^SyntaxError: /]
   },
   // Can handle multiline template literals
   {
@@ -164,13 +168,11 @@ const errorTests = [
   // Template expressions
   {
     send: '`io.js ${"1.0"',
-    expect: [
-      kSource,
-      kArrow,
-      '',
-      /^SyntaxError: /,
-      ''
-    ]
+    expect: '... '
+  },
+  {
+    send: '+ ".2"}`',
+    expect: '\'io.js 1.0.2\''
   },
   {
     send: '`io.js ${',
@@ -204,94 +206,94 @@ const errorTests = [
     send: 'JSON.parse(\'{"valid": "json"}\');',
     expect: '{ valid: \'json\' }'
   },
-  // invalid input to JSON.parse error is special case of syntax error,
+  // Invalid input to JSON.parse error is special case of syntax error,
   // should throw
   {
     send: 'JSON.parse(\'{invalid: \\\'json\\\'}\');',
-    expect: [/^SyntaxError: /, '']
+    expect: ['Thrown:', /^SyntaxError: /]
   },
-  // end of input to JSON.parse error is special case of syntax error,
+  // End of input to JSON.parse error is special case of syntax error,
   // should throw
   {
     send: 'JSON.parse(\'066\');',
-    expect: [/^SyntaxError: /, '']
+    expect: ['Thrown:', /^SyntaxError: /]
   },
   // should throw
   {
     send: 'JSON.parse(\'{\');',
-    expect: [/^SyntaxError: /, '']
+    expect: ['Thrown:', /^SyntaxError: /]
   },
   // invalid RegExps are a special case of syntax error,
   // should throw
   {
     send: '/(/;',
-    expect: /^SyntaxError: /
+    expect: ['Thrown:', /^SyntaxError: /]
   },
   // invalid RegExp modifiers are a special case of syntax error,
   // should throw (GH-4012)
   {
     send: 'new RegExp("foo", "wrong modifier");',
-    expect: [/^SyntaxError: /, '']
+    expect: ['Thrown:', /^SyntaxError: /]
   },
-  // strict mode syntax errors should be caught (GH-5178)
+  // Strict mode syntax errors should be caught (GH-5178)
   {
     send: '(function() { "use strict"; return 0755; })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(function(a, a, b) { "use strict"; return a + b + c; })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(function() { "use strict"; with (this) {} })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(function() { "use strict"; var x; delete x; })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(function() { "use strict"; eval = 17; })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(function() { "use strict"; if (true) function f() { } })()',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   // Named functions can be used:
@@ -311,6 +313,15 @@ const errorTests = [
   // Multiline object
   {
     send: '{ a: ',
+    expect: '... '
+  },
+  {
+    send: '1 }',
+    expect: '{ a: 1 }'
+  },
+  // Multiline string-keyed object (e.g. JSON)
+  {
+    send: '{ "a": ',
     expect: '... '
   },
   {
@@ -371,30 +382,30 @@ const errorTests = [
     send: 'var path = 42; path',
     expect: '42'
   },
-  // this makes sure that we don't print `undefined` when we actually print
+  // This makes sure that we don't print `undefined` when we actually print
   // the error message
   {
     send: '.invalid_repl_command',
     expect: 'Invalid REPL keyword'
   },
-  // this makes sure that we don't crash when we use an inherited property as
+  // This makes sure that we don't crash when we use an inherited property as
   // a REPL command
   {
     send: '.toString',
     expect: 'Invalid REPL keyword'
   },
-  // fail when we are not inside a String and a line continuation is used
+  // Fail when we are not inside a String and a line continuation is used
   {
     send: '[] \\',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
-  // do not fail when a String is created with line continuation
+  // Do not fail when a String is created with line continuation
   {
     send: '\'the\\\nfourth\\\neye\'',
     expect: ['... ... \'thefourtheye\'']
@@ -407,12 +418,12 @@ const errorTests = [
     send: '  \t    .break  \t  ',
     expect: ''
   },
-  // multiline strings preserve whitespace characters in them
+  // Multiline strings preserve whitespace characters in them
   {
     send: '\'the \\\n   fourth\t\t\\\n  eye  \'',
     expect: '... ... \'the    fourth\\t\\t  eye  \''
   },
-  // more than one multiline strings also should preserve whitespace chars
+  // More than one multiline strings also should preserve whitespace chars
   {
     send: '\'the \\\n   fourth\' +  \'\t\t\\\n  eye  \'',
     expect: '... ... \'the    fourth\\t\\t  eye  \''
@@ -422,26 +433,27 @@ const errorTests = [
     send: '\'\\\n.break',
     expect: '... ' + prompt_unix
   },
-  // using REPL command "help" within a string literal should still work
+  // Using REPL command "help" within a string literal should still work
   {
     send: '\'thefourth\\\n.help\neye\'',
     expect: [
       /\.break/,
       /\.clear/,
-      /\.editor/,
       /\.exit/,
       /\.help/,
       /\.load/,
       /\.save/,
+      '',
+      'Press ^C to abort current expression, ^D to exit the repl',
       /'thefourtheye'/
     ]
   },
-  // empty lines in the REPL should be allowed
+  // Empty lines in the REPL should be allowed
   {
     send: '\n\r\n\r\n',
     expect: ''
   },
-  // empty lines in the string literals should not affect the string
+  // Empty lines in the string literals should not affect the string
   {
     send: '\'the\\\n\\\nfourtheye\'\n',
     expect: '... ... \'thefourtheye\''
@@ -451,14 +463,14 @@ const errorTests = [
     send: '/(.)(.)(.)(.)(.)(.)(.)(.)(.)/.test(\'123456789\')\n',
     expect: 'true'
   },
-  // the following test's result depends on the RegExp's match from the above
+  // The following test's result depends on the RegExp's match from the above
   {
     send: 'RegExp.$1\nRegExp.$2\nRegExp.$3\nRegExp.$4\nRegExp.$5\n' +
           'RegExp.$6\nRegExp.$7\nRegExp.$8\nRegExp.$9\n',
     expect: ['\'1\'', '\'2\'', '\'3\'', '\'4\'', '\'5\'', '\'6\'',
              '\'7\'', '\'8\'', '\'9\'']
   },
-  // regression tests for https://github.com/nodejs/node/issues/2749
+  // Regression tests for https://github.com/nodejs/node/issues/2749
   {
     send: 'function x() {\nreturn \'\\n\';\n }',
     expect: '... ... undefined'
@@ -467,7 +479,7 @@ const errorTests = [
     send: 'function x() {\nreturn \'\\\\\';\n }',
     expect: '... ... undefined'
   },
-  // regression tests for https://github.com/nodejs/node/issues/3421
+  // Regression tests for https://github.com/nodejs/node/issues/3421
   {
     send: 'function x() {\n//\'\n }',
     expect: '... ... undefined'
@@ -521,7 +533,10 @@ const errorTests = [
   {
     send: 'require("internal/repl")',
     expect: [
-      /^Error: Cannot find module 'internal\/repl'/,
+      'Thrown:',
+      /^{ Error: Cannot find module 'internal\/repl'/,
+      /^Require stack:/,
+      /^- <repl>/,
       /^    at .*/,
       /^    at .*/,
       /^    at .*/,
@@ -554,11 +569,11 @@ const errorTests = [
   {
     send: 'a = 3.5e',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   // Mitigate https://github.com/nodejs/node/issues/548
@@ -574,22 +589,22 @@ const errorTests = [
   {
     send: 'a = 3.5e',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   // Avoid emitting stack trace
   {
     send: 'a = 3.5e',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
 
@@ -654,11 +669,11 @@ const errorTests = [
   {
     send: '...[]',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   // bring back the repl to prompt
@@ -669,31 +684,31 @@ const errorTests = [
   {
     send: 'console.log("Missing comma in arg list" process.version)',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: 'x = {\nfield\n{',
     expect: [
-      '... ... {',
+      '... ... Thrown:',
+      '{',
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
     send: '(2 + 3))',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
   {
@@ -707,11 +722,11 @@ const errorTests = [
   {
     send: '} else {',
     expect: [
+      'Thrown:',
       kSource,
       kArrow,
       '',
-      /^SyntaxError: /,
-      ''
+      /^SyntaxError: /
     ]
   },
 ];
@@ -775,8 +790,8 @@ function startTCPRepl() {
     client.setEncoding('utf8');
 
     client.on('connect', common.mustCall(() => {
-      assert.strictEqual(true, client.readable);
-      assert.strictEqual(true, client.writable);
+      assert.strictEqual(client.readable, true);
+      assert.strictEqual(client.writable, true);
 
       resolveSocket(client);
     }));
@@ -812,14 +827,16 @@ function startUnixRepl() {
     resolveReplServer(replServer);
   }));
 
+  tmpdir.refresh();
+
   server.listen(common.PIPE, common.mustCall(() => {
     const client = net.createConnection(common.PIPE);
 
     client.setEncoding('utf8');
 
     client.on('connect', common.mustCall(() => {
-      assert.strictEqual(true, client.readable);
-      assert.strictEqual(true, client.writable);
+      assert.strictEqual(client.readable, true);
+      assert.strictEqual(client.writable, true);
 
       resolveSocket(client);
     }));
@@ -835,8 +852,16 @@ function startUnixRepl() {
   ]);
 }
 
-function event(ee, eventName) {
-  return new Promise((resolve) => {
-    ee.once(eventName, common.mustCall(resolve));
+function event(ee, expected) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      const data = inspect(expected, { compact: false });
+      const msg = `The REPL did not reply as expected for:\n\n${data}`;
+      reject(new Error(msg));
+    }, common.platformTimeout(500));
+    ee.once('data', common.mustCall((...args) => {
+      clearTimeout(timeout);
+      resolve(...args);
+    }));
   });
 }

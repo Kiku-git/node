@@ -12,15 +12,27 @@ To view this documentation as a manual page in a terminal, run `man node`.
 
 `node [options] [V8 options] [script.js | -e "script" | -] [--] [arguments]`
 
-`node debug [script.js | -e "script" | <host>:<port>] …`
+`node inspect [script.js | -e "script" | <host>:<port>] …`
 
 `node --v8-options`
 
 Execute without arguments to start the [REPL][].
 
-_For more info about `node debug`, please see the [debugger][] documentation._
+_For more info about `node inspect`, please see the [debugger][] documentation._
 
 ## Options
+<!-- YAML
+changes:
+  - version: v10.12.0
+    pr-url: https://github.com/nodejs/node/pull/23020
+    description: Underscores instead of dashes are now allowed for
+                 Node.js options as well, in addition to V8 options.
+-->
+
+All options, including V8 options, allow words to be separated by both
+dashes (`-`) or underscores (`_`).
+
+For example, `--pending-deprecation` is equivalent to `--pending_deprecation`.
 
 ### `-`
 <!-- YAML
@@ -52,6 +64,68 @@ If this flag is passed, the behavior can still be set to not abort through
 [`process.setUncaughtExceptionCaptureCallback()`][] (and through usage of the
 `domain` module that uses it).
 
+### `--completion-bash`
+<!-- YAML
+added: v10.12.0
+-->
+
+Print source-able bash completion script for Node.js.
+```console
+$ node --completion-bash > node_bash_completion
+$ source node_bash_completion
+```
+
+### `--diagnostic-report-directory=directory`
+<!-- YAML
+added: v11.8.0
+-->
+
+Location at which the report will be generated.
+
+### `--diagnostic-report-filename=filename`
+<!-- YAML
+added: v11.8.0
+-->
+
+Name of the file to which the report will be written.
+
+### `--diagnostic-report-on-fatalerror`
+<!-- YAML
+added: v11.8.0
+-->
+
+Enables the report to be triggered on fatal errors (internal errors within
+the Node.js runtime such as out of memory) that lead to termination of the
+application, if `--experimental-report` is enabled. Useful to inspect various
+diagnostic data elements such as heap, stack, event loop state, resource
+consumption etc. to reason about the fatal error.
+
+### `--diagnostic-report-on-signal`
+<!-- YAML
+added: v11.8.0
+-->
+
+Enables report to be generated upon receiving the specified (or predefined)
+signal to the running Node.js process, if `--experimental-report` is enabled.
+The signal to trigger the report is specified through `--diagnostic-report-signal`.
+
+### `--diagnostic-report-signal=signal`
+<!-- YAML
+added: v11.8.0
+-->
+
+Sets or resets the signal for report generation (not supported on Windows).
+Default signal is `SIGUSR2`.
+
+### `--diagnostic-report-uncaught-exception`
+<!-- YAML
+added: v11.8.0
+-->
+
+Enables report to be generated on un-caught exceptions, if
+`--experimental-report` is enabled. Useful when inspecting JavaScript stack in
+conjunction with native stack and other runtime environment data.
+
 ### `--enable-fips`
 <!-- YAML
 added: v6.0.0
@@ -67,12 +141,26 @@ added: v8.5.0
 
 Enable experimental ES module support and caching modules.
 
+### `--experimental-policy`
+<!-- YAML
+added: v11.8.0
+-->
+
+Use the specified file as a security policy.
+
 ### `--experimental-repl-await`
 <!-- YAML
 added: v10.0.0
 -->
 
 Enable experimental top-level `await` keyword support in REPL.
+
+### `--experimental-report`
+<!-- YAML
+added: v11.8.0
+-->
+
+Enable experimental diagnostic report feature.
 
 ### `--experimental-vm-modules`
 <!-- YAML
@@ -88,6 +176,41 @@ added: v6.0.0
 
 Force FIPS-compliant crypto on startup. (Cannot be disabled from script code.)
 (Same requirements as `--enable-fips`.)
+
+### `--frozen-intrinsics`
+<!-- YAML
+added: REPLACEME
+-->
+
+> Stability: 1 - Experimental
+
+Enable experimental frozen intrinsics like `Array` and `Object`.
+
+Support is currently only provided for the root context and no guarantees are
+currently provided that `global.Array` is indeed the default intrinsic
+reference.
+
+**Code breakage is highly likely with this flag**, especially since limited
+support for subclassing builtins is provided currently due to ECMA-262 bug
+https://github.com/tc39/ecma262/pull/1320.
+
+Both of the above may change in future updates, which will be breaking changes.
+
+### `--http-parser=library`
+<!-- YAML
+added: v11.4.0
+-->
+
+Chooses an HTTP parser library. Available values are:
+
+- `llhttp` for https://llhttp.org/
+- `legacy` for https://github.com/nodejs/http-parser
+
+The default is `llhttp`, unless otherwise specified when building Node.js.
+
+This flag exists to aid in experimentation with the internal implementation of
+the Node.js http parser.
+This flag is likely to become a no-op and removed at some point in the future.
 
 ### `--icu-data-dir=file`
 <!-- YAML
@@ -114,6 +237,9 @@ Useful when activating the inspector by sending the `SIGUSR1` signal.
 
 Default host is `127.0.0.1`.
 
+See the [security warning](#inspector_security) below regarding the `host`
+parameter usage.
+
 ### `--inspect[=[host:]port]`
 <!-- YAML
 added: v6.3.0
@@ -124,6 +250,37 @@ Activate inspector on `host:port`. Default is `127.0.0.1:9229`.
 V8 inspector integration allows tools such as Chrome DevTools and IDEs to debug
 and profile Node.js instances. The tools attach to Node.js instances via a
 tcp port and communicate using the [Chrome DevTools Protocol][].
+
+<a id="inspector_security"></a>
+#### Warning: binding inspector to a public IP:port combination is insecure
+
+Binding the inspector to a public IP (including `0.0.0.0`) with an open port is
+insecure, as it allows external hosts to connect to the inspector and perform
+a [remote code execution][] attack.
+
+If specifying a host, make sure that either:
+
+* The host is not accessible from public networks.
+* A firewall disallows unwanted connections on the port.
+
+**More specifically, `--inspect=0.0.0.0` is insecure if the port (`9229` by
+default) is not firewall-protected.**
+
+See the [debugging security implications][] section for more information.
+
+### `--loader=file`
+<!-- YAML
+added: v9.0.0
+-->
+
+Specify the `file` of the custom [experimental ECMAScript Module][] loader.
+
+### `--max-http-header-size=size`
+<!-- YAML
+added: v11.6.0
+-->
+
+Specify the maximum size, in bytes, of HTTP headers. Defaults to 8KB.
 
 ### `--napi-modules`
 <!-- YAML
@@ -218,7 +375,7 @@ see those as two separate modules and would attempt to load the module multiple
 times, causing an exception to be thrown).
 
 The `--preserve-symlinks` flag does not apply to the main module, which allows
-`node --preserve-symlinks node_module/.bin/<foo>` to work.  To apply the same
+`node --preserve-symlinks node_module/.bin/<foo>` to work. To apply the same
 behavior for the main module, also use `--preserve-symlinks-main`.
 
 ### `--preserve-symlinks-main`
@@ -271,6 +428,13 @@ added: v0.11.14
 
 Throw errors for deprecations.
 
+### `--title=title`
+<!-- YAML
+added: v10.7.0
+-->
+
+Set `process.title` on startup.
+
 ### `--tls-cipher-list=list`
 <!-- YAML
 added: v4.0.0
@@ -278,6 +442,22 @@ added: v4.0.0
 
 Specify an alternative default TLS cipher list. Requires Node.js to be built
 with crypto support (default).
+
+### `--tls-v1.0`
+<!-- YAML
+added: REPLACEME
+-->
+
+Enable TLSv1.0 and greater in default [secureProtocol][]. Use for compatibility
+with old TLS clients or servers.
+
+### `--tls-v1.1`
+<!-- YAML
+added: REPLACEME
+-->
+
+Enable TLSv1.1 and greater in default [secureProtocol][]. Use for compatibility
+with old TLS clients or servers.
 
 ### `--trace-deprecation`
 <!-- YAML
@@ -357,11 +537,6 @@ added: v0.1.3
 -->
 
 Print V8 command line options.
-
-V8 options allow words to be separated by both dashes (`-`) or
-underscores (`_`).
-
-For example, `--stack-trace-limit` is equivalent to `--stack_trace_limit`.
 
 ### `--v8-pool-size=num`
 <!-- YAML
@@ -465,6 +640,10 @@ added: v0.1.32
 
 `','`-separated list of core modules that should print debug information.
 
+### `NODE_DEBUG_NATIVE=module[,…]`
+
+`','`-separated list of core C++ modules that should print debug information.
+
 ### `NODE_DISABLE_COLORS=1`
 <!-- YAML
 added: v0.3.0
@@ -485,6 +664,9 @@ malformed, but any errors are otherwise ignored.
 
 Note that neither the well known nor extra certificates are used when the `ca`
 options property is explicitly specified for a TLS or HTTPS client or server.
+
+This environment variable is ignored when `node` runs as setuid root or
+has Linux file capabilities set.
 
 ### `NODE_ICU_DATA=file`
 <!-- YAML
@@ -511,24 +693,41 @@ if they had been specified on the command line before the actual command line
 (so they can be overridden). Node.js will exit with an error if an option
 that is not allowed in the environment is used, such as `-p` or a script file.
 
-Node options that are allowed are:
+Node.js options that are allowed are:
+- `--diagnostic-report-directory`
+- `--diagnostic-report-filename`
+- `--diagnostic-report-on-fatalerror`
+- `--diagnostic-report-on-signal`
+- `--diagnostic-report-signal`
+- `--diagnostic-report-uncaught-exception`
 - `--enable-fips`
+- `--experimental-modules`
+- `--experimental-repl-await`
+- `--experimental-report`
+- `--experimental-vm-modules`
 - `--force-fips`
+- `--frozen-intrinsics`
 - `--icu-data-dir`
+- `--inspect`
 - `--inspect-brk`
 - `--inspect-port`
-- `--inspect`
+- `--loader`
+- `--max-http-header-size`
+- `--napi-modules`
 - `--no-deprecation`
+- `--no-force-async-hooks-checks`
 - `--no-warnings`
 - `--openssl-config`
+- `--pending-deprecation`
 - `--redirect-warnings`
 - `--require`, `-r`
 - `--throw-deprecation`
+- `--title`
 - `--tls-cipher-list`
 - `--trace-deprecation`
-- `--trace-events-categories`
-- `--trace-events-enabled`
+- `--trace-event-categories`
 - `--trace-event-file-pattern`
+- `--trace-events-enabled`
 - `--trace-sync-io`
 - `--trace-warnings`
 - `--track-heap-objects`
@@ -541,7 +740,9 @@ V8 options that are allowed are:
 - `--abort-on-uncaught-exception`
 - `--max-old-space-size`
 - `--perf-basic-prof`
+- `--perf-basic-prof-only-functions`
 - `--perf-prof`
+- `--perf-prof-unwinding-info`
 - `--stack-trace-limit`
 
 ### `NODE_PATH=path[:…]`
@@ -594,6 +795,38 @@ added: v3.0.0
 Path to the file used to store the persistent REPL history. The default path is
 `~/.node_repl_history`, which is overridden by this variable. Setting the value
 to an empty string (`''` or `' '`) disables persistent REPL history.
+
+### `NODE_TLS_REJECT_UNAUTHORIZED=value`
+
+If `value` equals `'0'`, certificate validation is disabled for TLS connections.
+This makes TLS, and HTTPS by extension, insecure. The use of this environment
+variable is strongly discouraged.
+
+### `NODE_V8_COVERAGE=dir`
+
+When set, Node.js will begin outputting [V8 JavaScript code coverage][] to the
+directory provided as an argument. Coverage is output as an array of
+[ScriptCoverage][] objects:
+
+```json
+{
+  "result": [
+    {
+      "scriptId": "67",
+      "url": "internal/tty.js",
+      "functions": []
+    }
+  ]
+}
+```
+
+`NODE_V8_COVERAGE` will automatically propagate to subprocesses, making it
+easier to instrument applications that call the `child_process.spawn()` family
+of functions. `NODE_V8_COVERAGE` can be set to an empty string, to prevent
+propagation.
+
+At this time coverage is only collected in the main thread and will not be
+output for code executed by worker threads.
 
 ### `OPENSSL_CONF=file`
 <!-- YAML
@@ -661,6 +894,12 @@ greater than `4` (its current default value). For more information, see the
 [`process.setUncaughtExceptionCaptureCallback()`]: process.html#process_process_setuncaughtexceptioncapturecallback_fn
 [Chrome DevTools Protocol]: https://chromedevtools.github.io/devtools-protocol/
 [REPL]: repl.html
+[ScriptCoverage]: https://chromedevtools.github.io/devtools-protocol/tot/Profiler#type-ScriptCoverage
+[V8 JavaScript code coverage]: https://v8project.blogspot.com/2017/12/javascript-code-coverage.html
 [debugger]: debugger.html
+[debugging security implications]: https://nodejs.org/en/docs/guides/debugging-getting-started/#security-implications
 [emit_warning]: process.html#process_process_emitwarning_warning_type_code_ctor
+[experimental ECMAScript Module]: esm.html#esm_loader_hooks
 [libuv threadpool documentation]: http://docs.libuv.org/en/latest/threadpool.html
+[remote code execution]: https://www.owasp.org/index.php/Code_Injection
+[secureProtocol]: tls.html#tls_tls_createsecurecontext_options

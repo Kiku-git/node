@@ -168,7 +168,7 @@ process.on('exit', function() {
   assert.equal(response, 1, 'http request "response" callback was not called');
 });
 
-const server = http.createServer(function(req, res) {
+const server = http.createServer((req, res) => {
   request++;
   res.end();
 }).listen(0, function() {
@@ -176,7 +176,7 @@ const server = http.createServer(function(req, res) {
     agent: null,
     port: this.address().port
   };
-  http.get(options, function(res) {
+  http.get(options, (res) => {
     response++;
     res.resume();
     server.close();
@@ -191,14 +191,14 @@ This test could be greatly simplified by using `common.mustCall` like this:
 const common = require('../common');
 const http = require('http');
 
-const server = http.createServer(common.mustCall(function(req, res) {
+const server = http.createServer(common.mustCall((req, res) => {
   res.end();
 })).listen(0, function() {
   const options = {
     agent: null,
     port: this.address().port
   };
-  http.get(options, common.mustCall(function(res) {
+  http.get(options, common.mustCall((res) => {
     res.resume();
     server.close();
   }));
@@ -225,34 +225,24 @@ countdown.dec(); // The countdown callback will be invoked now.
 
 #### Testing promises
 
-When writing tests involving promises, either make sure that the
-`onFulfilled` or the `onRejected` handler is wrapped in
-`common.mustCall()` or `common.mustNotCall()` accordingly, or
-call `common.crashOnUnhandledRejection()` in the top level of the
-test to make sure that unhandled rejections would result in a test
-failure. For example:
+When writing tests involving promises, it is generally good to wrap the
+`onFulfilled` handler, otherwise the test could successfully finish if the
+promise never resolves (pending promises do not keep the event loop alive). The
+`common` module automatically adds a handler that makes the process crash - and
+hence, the test fail - in the case of an `unhandledRejection` event. It is
+possible to disable it with `common.disableCrashOnUnhandledRejection()` if
+needed.
 
 ```javascript
 const common = require('../common');
 const assert = require('assert');
 const fs = require('fs').promises;
 
-// Use `common.crashOnUnhandledRejection()` to make sure unhandled rejections
-// will fail the test.
-common.crashOnUnhandledRejection();
-
-// Or, wrap the `onRejected` handler in `common.mustNotCall()`.
-fs.writeFile('test-file', 'test').catch(common.mustNotCall());
-
-// Or, wrap the `onFulfilled` handler in `common.mustCall()`.
-// If there are assertions in the `onFulfilled` handler, wrap
-// the next `onRejected` handler in `common.mustNotCall()`
-// to handle potential failures.
+// Wrap the `onFulfilled` handler in `common.mustCall()`.
 fs.readFile('test-file').then(
   common.mustCall(
     (content) => assert.strictEqual(content.toString(), 'test2')
-  ))
-  .catch(common.mustNotCall());
+  ));
 ```
 
 ### Flags
@@ -320,27 +310,7 @@ functions worked correctly with the `beforeExit` event, then it might be named
 
 ### Web Platform Tests
 
-Some of the tests for the WHATWG URL implementation (named
-`test-whatwg-url-*.js`) are imported from the [Web Platform Tests Project][].
-These imported tests will be wrapped like this:
-
-```js
-/* The following tests are copied from WPT. Modifications to them should be
-   upstreamed first. Refs:
-   https://github.com/w3c/web-platform-tests/blob/8791bed/url/urlsearchparams-stringifier.html
-   License: http://www.w3.org/Consortium/Legal/2008/04-testsuite-copyright.html
-*/
-/* eslint-disable */
-
-// Test code
-
-/* eslint-enable */
-```
-
-To improve tests that have been imported this way, please send
-a PR to the upstream project first. When the proposed change is merged in
-the upstream project, send another PR here to update Node.js accordingly.
-Be sure to update the hash in the URL following `WPT Refs:`.
+See [`test/wpt`](../../test/wpt/README.md) for more information.
 
 ## C++ Unit test
 
@@ -403,6 +373,16 @@ The test can be executed by running the `cctest` target:
 $ make cctest
 ```
 
+A filter can be applied to run single/multiple test cases:
+```console
+$ make cctest GTEST_FILTER=EnvironmentTest.AtExitWithArgument
+```
+
+`cctest` can also be run directly which can be useful when debugging:
+```console
+$ out/Release/cctest --gtest_filter=EnvironmentTest.AtExit*
+```
+
 ### Node.js test fixture
 There is a [test fixture][] named `node_test_fixture.h` which can be included by
 unit tests. The fixture takes care of setting up the Node.js environment
@@ -414,14 +394,13 @@ will depend on what is being tested if this is required or not.
 ### Test Coverage
 
 To generate a test coverage report, see the
-[Test Coverage section of the Pull Requests guide][].
+[Test Coverage section of the Building guide][].
 
 [ASCII]: http://man7.org/linux/man-pages/man7/ascii.7.html
 [Google Test]: https://github.com/google/googletest
-[Web Platform Tests Project]: https://github.com/w3c/web-platform-tests/tree/master/url
 [`common` module]: https://github.com/nodejs/node/blob/master/test/common/README.md
 [all maintained branches]: https://github.com/nodejs/lts
 [node.green]: http://node.green/
 [test fixture]: https://github.com/google/googletest/blob/master/googletest/docs/Primer.md#test-fixtures-using-the-same-data-configuration-for-multiple-tests
-[Test Coverage section of the Pull Requests guide]: https://github.com/nodejs/node/blob/master/doc/guides/contributing/pull-requests.md#test-coverage
+[Test Coverage section of the Building guide]: https://github.com/nodejs/node/blob/master/BUILDING.md#running-coverage
 [directory structure overview]: https://github.com/nodejs/node/blob/master/test/README.md#test-directories

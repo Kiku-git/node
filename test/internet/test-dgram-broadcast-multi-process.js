@@ -70,7 +70,7 @@ if (process.argv[2] !== 'child') {
                   TIMEOUT);
     console.error('[PARENT] Fail');
 
-    killChildren(workers);
+    killSubprocesses(workers);
 
     process.exit(1);
   }, TIMEOUT);
@@ -85,7 +85,7 @@ if (process.argv[2] !== 'child') {
 
       // Handle the death of workers
       worker.on('exit', function(code, signal) {
-        // don't consider this the true death if the worker
+        // Don't consider this the true death if the worker
         // has finished successfully
         // or if the exit code is 0
         if (worker.isDone || code === 0) {
@@ -102,7 +102,7 @@ if (process.argv[2] !== 'child') {
           console.error('[PARENT] All workers have died.');
           console.error('[PARENT] Fail');
 
-          killChildren(workers);
+          killSubprocesses(workers);
 
           process.exit(1);
         }
@@ -146,7 +146,7 @@ if (process.argv[2] !== 'child') {
                 }
               });
 
-              console.error('[PARENT] %d received %d matching messges.',
+              console.error('[PARENT] %d received %d matching messages.',
                             worker.pid,
                             count);
 
@@ -155,7 +155,7 @@ if (process.argv[2] !== 'child') {
 
             clearTimeout(timer);
             console.error('[PARENT] Success');
-            killChildren(workers);
+            killSubprocesses(workers);
           }
         }
       });
@@ -182,7 +182,7 @@ if (process.argv[2] !== 'child') {
     const buf = messages[i++];
 
     if (!buf) {
-      try { sendSocket.close(); } catch (e) {}
+      try { sendSocket.close(); } catch {}
       return;
     }
 
@@ -203,10 +203,10 @@ if (process.argv[2] !== 'child') {
     );
   };
 
-  function killChildren(children) {
-    Object.keys(children).forEach(function(key) {
-      const child = children[key];
-      child.kill();
+  function killSubprocesses(subprocesses) {
+    Object.keys(subprocesses).forEach(function(key) {
+      const subprocess = subprocesses[key];
+      subprocess.kill();
     });
   }
 }
@@ -219,7 +219,7 @@ if (process.argv[2] === 'child') {
   });
 
   listenSocket.on('message', function(buf, rinfo) {
-    // receive udp messages only sent from parent
+    // Receive udp messages only sent from parent
     if (rinfo.address !== bindAddress) return;
 
     console.error('[CHILD] %s received %s from %j',

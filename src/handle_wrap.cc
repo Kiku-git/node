@@ -29,6 +29,7 @@ namespace node {
 
 using v8::Context;
 using v8::FunctionCallbackInfo;
+using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Local;
 using v8::Object;
@@ -67,7 +68,7 @@ void HandleWrap::Close(const FunctionCallbackInfo<Value>& args) {
   wrap->Close(args[0]);
 }
 
-void HandleWrap::Close(v8::Local<v8::Value> close_callback) {
+void HandleWrap::Close(Local<Value> close_callback) {
   if (state_ != kInitialized)
     return;
 
@@ -76,9 +77,10 @@ void HandleWrap::Close(v8::Local<v8::Value> close_callback) {
   state_ = kClosing;
 
   if (!close_callback.IsEmpty() && close_callback->IsFunction()) {
-    object()->Set(env()->context(), env()->onclose_string(), close_callback)
-        .FromJust();
-    state_ = kClosingWithCallback;
+    object()->Set(env()->context(),
+                  env()->handle_onclose_symbol(),
+                  close_callback)
+        .FromMaybe(false);
   }
 }
 
@@ -109,24 +111,38 @@ HandleWrap::HandleWrap(Environment* env,
 
 
 void HandleWrap::OnClose(uv_handle_t* handle) {
-  HandleWrap* wrap = static_cast<HandleWrap*>(handle->data);
+  std::unique_ptr<HandleWrap> wrap { static_cast<HandleWrap*>(handle->data) };
   Environment* env = wrap->env();
   HandleScope scope(env->isolate());
   Context::Scope context_scope(env->context());
 
   // The wrap object should still be there.
   CHECK_EQ(wrap->persistent().IsEmpty(), false);
-  CHECK(wrap->state_ >= kClosing && wrap->state_ <= kClosingWithCallback);
+  CHECK_EQ(wrap->state_, kClosing);
 
-  const bool have_close_callback = (wrap->state_ == kClosingWithCallback);
   wrap->state_ = kClosed;
 
   wrap->OnClose();
 
-  if (have_close_callback)
-    wrap->MakeCallback(env->onclose_string(), 0, nullptr);
+  if (wrap->object()->Has(env->context(), env->handle_onclose_symbol())
+      .FromMaybe(false)) {
+    wrap->MakeCallback(env->handle_onclose_symbol(), 0, nullptr);
+  }
+}
 
-  delete wrap;
+Local<FunctionTemplate> HandleWrap::GetConstructorTemplate(Environment* env) {
+  Local<FunctionTemplate> tmpl = env->handle_wrap_ctor_template();
+  if (tmpl.IsEmpty()) {
+    tmpl = env->NewFunctionTemplate(nullptr);
+    tmpl->SetClassName(FIXED_ONE_BYTE_STRING(env->isolate(), "HandleWrap"));
+    tmpl->Inherit(AsyncWrap::GetConstructorTemplate(env));
+    env->SetProtoMethod(tmpl, "close", HandleWrap::Close);
+    env->SetProtoMethodNoSideEffect(tmpl, "hasRef", HandleWrap::HasRef);
+    env->SetProtoMethod(tmpl, "ref", HandleWrap::Ref);
+    env->SetProtoMethod(tmpl, "unref", HandleWrap::Unref);
+    env->set_handle_wrap_ctor_template(tmpl);
+  }
+  return tmpl;
 }
 
 

@@ -57,7 +57,7 @@ class TestNodeMatcher : public MatcherInterface<Node*> {
 
   bool MatchAndExplain(Node* node,
                        MatchResultListener* listener) const override {
-    if (node == NULL) {
+    if (node == nullptr) {
       *listener << "which is NULL";
       return false;
     }
@@ -819,7 +819,7 @@ class IsSpeculativeBinopMatcher final : public TestNodeMatcher {
 
  private:
   const Matcher<NumberOperationHint> hint_matcher_;
-  const Matcher<Type*> type_matcher_;
+  const Matcher<Type> type_matcher_;
   const Matcher<Node*> lhs_matcher_;
   const Matcher<Node*> rhs_matcher_;
   const Matcher<Node*> effect_matcher_;
@@ -1401,6 +1401,43 @@ class IsBinopMatcher final : public TestNodeMatcher {
   const Matcher<Node*> rhs_matcher_;
 };
 
+class IsStringConcatMatcher final : public TestNodeMatcher {
+ public:
+  IsStringConcatMatcher(const Matcher<Node*>& length_matcher,
+                        const Matcher<Node*>& lhs_matcher,
+                        const Matcher<Node*>& rhs_matcher)
+      : TestNodeMatcher(IrOpcode::kStringConcat),
+        length_matcher_(length_matcher),
+        lhs_matcher_(lhs_matcher),
+        rhs_matcher_(rhs_matcher) {}
+
+  void DescribeTo(std::ostream* os) const final {
+    TestNodeMatcher::DescribeTo(os);
+    *os << " whose length (";
+    length_matcher_.DescribeTo(os);
+    *os << ") and lhs (";
+    lhs_matcher_.DescribeTo(os);
+    *os << ") and rhs (";
+    rhs_matcher_.DescribeTo(os);
+    *os << ")";
+  }
+
+  bool MatchAndExplain(Node* node, MatchResultListener* listener) const final {
+    return (TestNodeMatcher::MatchAndExplain(node, listener) &&
+            PrintMatchAndExplain(NodeProperties::GetValueInput(node, 0),
+                                 "length", length_matcher_, listener) &&
+            PrintMatchAndExplain(NodeProperties::GetValueInput(node, 1), "lhs",
+                                 lhs_matcher_, listener) &&
+            PrintMatchAndExplain(NodeProperties::GetValueInput(node, 2), "rhs",
+                                 rhs_matcher_, listener));
+  }
+
+ private:
+  const Matcher<Node*> length_matcher_;
+  const Matcher<Node*> lhs_matcher_;
+  const Matcher<Node*> rhs_matcher_;
+};
+
 class IsUnopMatcher final : public TestNodeMatcher {
  public:
   IsUnopMatcher(IrOpcode::Value opcode, const Matcher<Node*>& input_matcher)
@@ -1910,8 +1947,18 @@ Matcher<Node*> IsTailCall(
         IrOpcode::k##opcode, hint_matcher, lhs_matcher, rhs_matcher,          \
         effect_matcher, control_matcher));                                    \
   }
-SPECULATIVE_BINOPS(DEFINE_SPECULATIVE_BINOP_MATCHER);
+SIMPLIFIED_SPECULATIVE_NUMBER_BINOP_LIST(DEFINE_SPECULATIVE_BINOP_MATCHER);
+DEFINE_SPECULATIVE_BINOP_MATCHER(SpeculativeNumberEqual)
+DEFINE_SPECULATIVE_BINOP_MATCHER(SpeculativeNumberLessThan)
+DEFINE_SPECULATIVE_BINOP_MATCHER(SpeculativeNumberLessThanOrEqual)
 #undef DEFINE_SPECULATIVE_BINOP_MATCHER
+
+Matcher<Node*> IsStringConcat(const Matcher<Node*>& length_matcher,
+                              const Matcher<Node*>& lhs_matcher,
+                              const Matcher<Node*>& rhs_matcher) {
+  return MakeMatcher(
+      new IsStringConcatMatcher(length_matcher, lhs_matcher, rhs_matcher));
+}
 
 Matcher<Node*> IsAllocate(const Matcher<Node*>& size_matcher,
                           const Matcher<Node*>& effect_matcher,
@@ -2115,6 +2162,7 @@ IS_BINOP_MATCHER(Int64Add)
 IS_BINOP_MATCHER(Int64Sub)
 IS_BINOP_MATCHER(Int64Mul)
 IS_BINOP_MATCHER(JSAdd)
+IS_BINOP_MATCHER(JSParseInt)
 IS_BINOP_MATCHER(Float32Equal)
 IS_BINOP_MATCHER(Float32LessThan)
 IS_BINOP_MATCHER(Float32LessThanOrEqual)
@@ -2186,9 +2234,11 @@ IS_UNOP_MATCHER(NumberToInt32)
 IS_UNOP_MATCHER(NumberToUint32)
 IS_UNOP_MATCHER(PlainPrimitiveToNumber)
 IS_UNOP_MATCHER(ObjectIsFiniteNumber)
+IS_UNOP_MATCHER(NumberIsFinite)
 IS_UNOP_MATCHER(ObjectIsInteger)
 IS_UNOP_MATCHER(ObjectIsSafeInteger)
 IS_UNOP_MATCHER(ObjectIsNaN)
+IS_UNOP_MATCHER(NumberIsNaN)
 IS_UNOP_MATCHER(ObjectIsReceiver)
 IS_UNOP_MATCHER(ObjectIsSmi)
 IS_UNOP_MATCHER(ObjectIsUndetectable)
@@ -2199,7 +2249,7 @@ IS_UNOP_MATCHER(Word32Ctz)
 IS_UNOP_MATCHER(Word32Popcnt)
 IS_UNOP_MATCHER(Word32ReverseBytes)
 IS_UNOP_MATCHER(SpeculativeToNumber)
-IS_UNOP_MATCHER(PoisonOnSpeculationTagged)
+IS_UNOP_MATCHER(TaggedPoisonOnSpeculation)
 #undef IS_UNOP_MATCHER
 
 // Special-case Bitcast operators which are disabled when ENABLE_VERIFY_CSA is

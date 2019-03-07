@@ -23,15 +23,17 @@ class CommonOperatorReducerTest : public GraphTest {
  public:
   explicit CommonOperatorReducerTest(int num_parameters = 1)
       : GraphTest(num_parameters), machine_(zone()), simplified_(zone()) {}
-  ~CommonOperatorReducerTest() override {}
+  ~CommonOperatorReducerTest() override = default;
 
  protected:
   Reduction Reduce(
       AdvancedReducer::Editor* editor, Node* node,
       MachineOperatorBuilder::Flags flags = MachineOperatorBuilder::kNoFlags) {
+    JSHeapBroker broker(isolate(), zone());
     MachineOperatorBuilder machine(zone(), MachineType::PointerRepresentation(),
                                    flags);
-    CommonOperatorReducer reducer(editor, graph(), common(), &machine, zone());
+    CommonOperatorReducer reducer(editor, graph(), &broker, common(), &machine,
+                                  zone());
     return reducer.Reduce(node);
   }
 

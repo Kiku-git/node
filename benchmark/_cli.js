@@ -6,10 +6,8 @@ const path = require('path');
 // Create an object of all benchmark scripts
 const benchmarks = {};
 fs.readdirSync(__dirname)
-  .filter(function(name) {
-    return fs.statSync(path.resolve(__dirname, name)).isDirectory();
-  })
-  .forEach(function(category) {
+  .filter((name) => fs.statSync(path.resolve(__dirname, name)).isDirectory())
+  .forEach((category) => {
     benchmarks[category] = fs.readdirSync(path.resolve(__dirname, category))
       .filter((filename) => filename[0] !== '.' && filename[0] !== '_');
   });
@@ -30,7 +28,7 @@ function CLI(usage, settings) {
   }
 
   let currentOptional = null;
-  let mode = 'both'; // possible states are: [both, option, item]
+  let mode = 'both'; // Possible states are: [both, option, item]
 
   for (const arg of process.argv.slice(2)) {
     if (arg === '--') {
@@ -49,7 +47,7 @@ function CLI(usage, settings) {
         this.optional[currentOptional] = true;
         mode = 'both';
       } else {
-        // expect the next value to be option related (either -- or the value)
+        // Expect the next value to be option related (either -- or the value)
         mode = 'option';
       }
     } else if (mode === 'option') {
@@ -61,7 +59,7 @@ function CLI(usage, settings) {
         this.optional[currentOptional] = arg;
       }
 
-      // the next value can be either an option or an item
+      // The next value can be either an option or an item
       mode = 'both';
     } else if (['both', 'item'].includes(mode)) {
       // item arguments
@@ -72,7 +70,6 @@ function CLI(usage, settings) {
     } else {
       // Bad case, abort
       this.abort(usage);
-      return;
     }
   }
 }

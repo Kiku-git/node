@@ -17,7 +17,10 @@ Module._findPath = (request, paths, isMain) => {
   if (!r && hacks.includes(request)) {
     try {
       return require.resolve(`./tools/node_modules/${request}`);
-    } catch (err) {
+    // Keep the variable in place to ensure that ESLint started by older Node.js
+    // versions work as expected.
+    // eslint-disable-next-line no-unused-vars
+    } catch (e) {
       return require.resolve(
         `./tools/node_modules/eslint/node_modules/${request}`);
     }
@@ -40,6 +43,11 @@ module.exports = {
       ],
       parserOptions: { sourceType: 'module' },
     },
+    {
+      files: ['**/*.md'],
+      parserOptions: { ecmaFeatures: { impliedStrict: true } },
+      rules: { strict: 'off' },
+    },
   ],
   rules: {
     // ESLint built-in rules
@@ -50,6 +58,18 @@ module.exports = {
     'arrow-spacing': ['error', { before: true, after: true }],
     'block-spacing': 'error',
     'brace-style': ['error', '1tbs', { allowSingleLine: true }],
+    'capitalized-comments': ['error', 'always', {
+      line: {
+        // Ignore all lines that have less characters than 40 and all lines that
+        // start with something that looks like a variable name or code.
+        ignorePattern: '^.{0,40}$|^ [a-z]+ ?[0-9A-Z_.(/=:[#-]|^ std',
+        ignoreInlineComments: true,
+        ignoreConsecutiveComments: true,
+      },
+      block: {
+        ignorePattern: '.*',
+      },
+    }],
     'comma-dangle': ['error', 'only-multiline'],
     'comma-spacing': 'error',
     'comma-style': 'error',
@@ -93,6 +113,7 @@ module.exports = {
     'no-dupe-class-members': 'error',
     'no-dupe-keys': 'error',
     'no-duplicate-case': 'error',
+    'no-duplicate-imports': 'error',
     'no-empty-character-class': 'error',
     'no-ex-assign': 'error',
     'no-extra-boolean-cast': 'error',
@@ -104,6 +125,7 @@ module.exports = {
     'no-invalid-regexp': 'error',
     'no-irregular-whitespace': 'error',
     'no-lonely-if': 'error',
+    'no-misleading-character-class': 'error',
     'no-mixed-requires': 'error',
     'no-mixed-spaces-and-tabs': 'error',
     'no-multi-spaces': ['error', { ignoreEOLComments: true }],
@@ -116,27 +138,28 @@ module.exports = {
     'no-proto': 'error',
     'no-redeclare': 'error',
     'no-restricted-modules': ['error', 'sys'],
+    /* eslint-disable max-len */
     'no-restricted-properties': [
       'error',
       {
         object: 'assert',
         property: 'deepEqual',
-        message: 'Use assert.deepStrictEqual().',
+        message: 'Use `assert.deepStrictEqual()`.',
       },
       {
         object: 'assert',
         property: 'notDeepEqual',
-        message: 'Use assert.notDeepStrictEqual().',
+        message: 'Use `assert.notDeepStrictEqual()`.',
       },
       {
         object: 'assert',
         property: 'equal',
-        message: 'Use assert.astrictEqual() rather than assert.equal().',
+        message: 'Use `assert.strictEqual()` rather than `assert.equal()`.',
       },
       {
         object: 'assert',
         property: 'notEqual',
-        message: 'Use assert.notStrictEqual() rather than assert.notEqual().',
+        message: 'Use `assert.notStrictEqual()` rather than `assert.notEqual()`.',
       },
       {
         property: '__defineGetter__',
@@ -145,42 +168,50 @@ module.exports = {
       {
         property: '__defineSetter__',
         message: '__defineSetter__ is deprecated.',
-      }
+      },
     ],
-    /* eslint-disable max-len, quotes */
     // If this list is modified, please copy the change to lib/.eslintrc.yaml
+    // and test/.eslintrc.yaml.
     'no-restricted-syntax': [
       'error',
       {
+        selector: "CallExpression[callee.object.name='assert'][callee.property.name='deepStrictEqual'][arguments.2.type='Literal']",
+        message: 'Do not use a literal for the third argument of assert.deepStrictEqual()',
+      },
+      {
         selector: "CallExpression[callee.object.name='assert'][callee.property.name='doesNotThrow']",
-        message: "Please replace `assert.doesNotThrow()` and add a comment next to the code instead."
+        message: 'Please replace `assert.doesNotThrow()` and add a comment next to the code instead.',
       },
       {
-        selector: `CallExpression[callee.object.name='assert'][callee.property.name='rejects'][arguments.length<2]`,
-        message: 'assert.rejects() must be invoked with at least two arguments.',
+        selector: "CallExpression[callee.object.name='assert'][callee.property.name='rejects'][arguments.length<2]",
+        message: '`assert.rejects()` must be invoked with at least two arguments.',
       },
       {
-        selector: `CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.1.type='Literal']:not([arguments.1.regex])`,
-        message: 'Use an object as second argument of assert.throws()',
+        selector: "CallExpression[callee.object.name='assert'][callee.property.name='strictEqual'][arguments.2.type='Literal']",
+        message: 'Do not use a literal for the third argument of assert.strictEqual()',
       },
       {
-        selector: `CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.length<2]`,
-        message: 'assert.throws() must be invoked with at least two arguments.',
+        selector: "CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.1.type='Literal']:not([arguments.1.regex])",
+        message: 'Use an object as second argument of `assert.throws()`.',
       },
       {
-        selector: `CallExpression[callee.name='setTimeout'][arguments.length<2]`,
-        message: 'setTimeout() must be invoked with at least two arguments.',
+        selector: "CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.length<2]",
+        message: '`assert.throws()` must be invoked with at least two arguments.',
       },
       {
-        selector: `CallExpression[callee.name='setInterval'][arguments.length<2]`,
-        message: 'setInterval() must be invoked with at least 2 arguments.',
+        selector: "CallExpression[callee.name='setTimeout'][arguments.length<2]",
+        message: '`setTimeout()` must be invoked with at least two arguments.',
+      },
+      {
+        selector: "CallExpression[callee.name='setInterval'][arguments.length<2]",
+        message: '`setInterval()` must be invoked with at least two arguments.',
       },
       {
         selector: 'ThrowStatement > CallExpression[callee.name=/Error$/]',
-        message: 'Use new keyword when throwing an Error.',
-      }
+        message: 'Use `new` keyword when throwing an `Error`.',
+      },
     ],
-    /* eslint-enable max-len, quotes */
+    /* eslint-enable max-len */
     'no-return-await': 'error',
     'no-self-assign': 'error',
     'no-self-compare': 'error',
@@ -196,14 +227,16 @@ module.exports = {
     'no-unsafe-finally': 'error',
     'no-unsafe-negation': 'error',
     'no-unused-labels': 'error',
-    'no-unused-vars': ['error', { args: 'none' }],
+    'no-unused-vars': ['error', { args: 'none', caughtErrors: 'all' }],
     'no-use-before-define': ['error', {
       classes: true,
       functions: false,
       variables: false,
     }],
     'no-useless-call': 'error',
+    'no-useless-catch': 'error',
     'no-useless-concat': 'error',
+    'no-useless-constructor': 'error',
     'no-useless-escape': 'error',
     'no-useless-return': 'error',
     'no-void': 'error',
@@ -230,7 +263,7 @@ module.exports = {
     'space-unary-ops': 'error',
     'spaced-comment': ['error', 'always', {
       'block': { 'balanced': true },
-      'exceptions': ['-']
+      'exceptions': ['-'],
     }],
     'strict': ['error', 'global'],
     'symbol-description': 'error',
@@ -241,19 +274,21 @@ module.exports = {
 
     // Custom rules from eslint-plugin-node-core
     'node-core/no-unescaped-regexp-dot': 'error',
+    'node-core/no-duplicate-requires': 'error',
   },
   globals: {
-    COUNTER_HTTP_CLIENT_REQUEST: false,
-    COUNTER_HTTP_CLIENT_RESPONSE: false,
-    COUNTER_HTTP_SERVER_REQUEST: false,
-    COUNTER_HTTP_SERVER_RESPONSE: false,
-    COUNTER_NET_SERVER_CONNECTION: false,
-    COUNTER_NET_SERVER_CONNECTION_CLOSE: false,
-    DTRACE_HTTP_CLIENT_REQUEST: false,
-    DTRACE_HTTP_CLIENT_RESPONSE: false,
-    DTRACE_HTTP_SERVER_REQUEST: false,
-    DTRACE_HTTP_SERVER_RESPONSE: false,
-    DTRACE_NET_SERVER_CONNECTION: false,
-    DTRACE_NET_STREAM_END: false
+    Atomics: 'readable',
+    BigInt: 'readable',
+    BigInt64Array: 'readable',
+    BigUint64Array: 'readable',
+    DTRACE_HTTP_CLIENT_REQUEST: 'readable',
+    DTRACE_HTTP_CLIENT_RESPONSE: 'readable',
+    DTRACE_HTTP_SERVER_REQUEST: 'readable',
+    DTRACE_HTTP_SERVER_RESPONSE: 'readable',
+    DTRACE_NET_SERVER_CONNECTION: 'readable',
+    DTRACE_NET_STREAM_END: 'readable',
+    TextEncoder: 'readable',
+    TextDecoder: 'readable',
+    queueMicrotask: 'readable',
   },
 };

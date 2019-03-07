@@ -19,6 +19,7 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+// Flags: --pending-deprecation
 'use strict';
 const common = require('../common');
 
@@ -32,8 +33,11 @@ const { kMaxLength } = require('buffer');
 const kMaxUint32 = Math.pow(2, 32) - 1;
 const kMaxPossibleLength = Math.min(kMaxLength, kMaxUint32);
 
-// bump, we register a lot of exit listeners
+// Bump, we register a lot of exit listeners
 process.setMaxListeners(256);
+
+common.expectWarning('DeprecationWarning',
+                     'crypto.pseudoRandomBytes is deprecated.', 'DEP0115');
 
 {
   [crypto.randomBytes, crypto.pseudoRandomBytes].forEach((f) => {
@@ -301,4 +305,13 @@ assert.throws(
       message: 'Callback must be a function',
     }
   );
+});
+
+
+['pseudoRandomBytes', 'prng', 'rng'].forEach((f) => {
+  const desc = Object.getOwnPropertyDescriptor(crypto, f);
+  assert.ok(desc);
+  assert.strictEqual(desc.configurable, true);
+  assert.strictEqual(desc.writable, true);
+  assert.strictEqual(desc.enumerable, false);
 });

@@ -39,7 +39,25 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
             InstructionSelector::SupportedMachineOperatorFlags(),
             InstructionSelector::AlignmentRequirements()) {}
 
-  virtual ~RawMachineAssemblerTester() {}
+  template <typename... ParamMachTypes>
+  RawMachineAssemblerTester(Code::Kind kind, ParamMachTypes... p)
+      : HandleAndZoneScope(),
+        CallHelper<ReturnType>(
+            main_isolate(),
+            CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p...)),
+        RawMachineAssembler(
+            main_isolate(), new (main_zone()) Graph(main_zone()),
+            Linkage::GetSimplifiedCDescriptor(
+                main_zone(),
+                CSignature::New(main_zone(), MachineTypeForC<ReturnType>(),
+                                p...),
+                true),
+            MachineType::PointerRepresentation(),
+            InstructionSelector::SupportedMachineOperatorFlags(),
+            InstructionSelector::AlignmentRequirements()),
+        kind_(kind) {}
+
+  ~RawMachineAssemblerTester() override = default;
 
   void CheckNumber(double expected, Object* number) {
     CHECK(this->isolate()->factory()->NewNumber(expected)->SameValue(number));
@@ -59,20 +77,21 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
   }
 
  protected:
-  virtual byte* Generate() {
+  Address Generate() override {
     if (code_.is_null()) {
       Schedule* schedule = this->Export();
       auto call_descriptor = this->call_descriptor();
       Graph* graph = this->graph();
-      OptimizedCompilationInfo info(ArrayVector("testing"), main_zone(),
-                                    Code::STUB);
+      OptimizedCompilationInfo info(ArrayVector("testing"), main_zone(), kind_);
       code_ = Pipeline::GenerateCodeForTesting(
-          &info, main_isolate(), call_descriptor, graph, schedule);
+          &info, main_isolate(), call_descriptor, graph,
+          AssemblerOptions::Default(main_isolate()), schedule);
     }
     return this->code_.ToHandleChecked()->entry();
   }
 
  private:
+  Code::Kind kind_ = Code::Kind::STUB;
   MaybeHandle<Code> code_;
 };
 
@@ -95,7 +114,7 @@ class BufferedRawMachineAssemblerTester
     }
   }
 
-  virtual byte* Generate() { return RawMachineAssemblerTester::Generate(); }
+  Address Generate() override { return RawMachineAssemblerTester::Generate(); }
 
   // The BufferedRawMachineAssemblerTester does not pass parameters directly
   // to the constructed IR graph. Instead it passes a pointer to the parameter
@@ -151,7 +170,7 @@ class BufferedRawMachineAssemblerTester<void>
     }
   }
 
-  virtual byte* Generate() { return RawMachineAssemblerTester::Generate(); }
+  Address Generate() override { return RawMachineAssemblerTester::Generate(); }
 
   // The BufferedRawMachineAssemblerTester does not pass parameters directly
   // to the constructed IR graph. Instead it passes a pointer to the parameter
@@ -297,22 +316,22 @@ class Float64BinopTester : public BinopTester<double, USE_RESULT_BUFFER> {
 // and return a pointer value.
 // TODO(titzer): pick word size of pointers based on V8_TARGET.
 template <typename Type>
-class PointerBinopTester : public BinopTester<Type*, USE_RETURN_REGISTER> {
+class PointerBinopTester : public BinopTester<Type, USE_RETURN_REGISTER> {
  public:
   explicit PointerBinopTester(RawMachineAssemblerTester<int32_t>* tester)
-      : BinopTester<Type*, USE_RETURN_REGISTER>(tester,
-                                                MachineType::Pointer()) {}
+      : BinopTester<Type, USE_RETURN_REGISTER>(tester, MachineType::Pointer()) {
+  }
 };
 
 
 // A helper class for testing code sequences that take two tagged parameters and
 // return a tagged value.
 template <typename Type>
-class TaggedBinopTester : public BinopTester<Type*, USE_RETURN_REGISTER> {
+class TaggedBinopTester : public BinopTester<Type, USE_RETURN_REGISTER> {
  public:
   explicit TaggedBinopTester(RawMachineAssemblerTester<int32_t>* tester)
-      : BinopTester<Type*, USE_RETURN_REGISTER>(tester,
-                                                MachineType::AnyTagged()) {}
+      : BinopTester<Type, USE_RETURN_REGISTER>(tester,
+                                               MachineType::AnyTagged()) {}
 };
 
 // A helper class for testing compares. Wraps a machine opcode and provides
@@ -394,7 +413,7 @@ class BinopGen {
  public:
   virtual void gen(RawMachineAssemblerTester<int32_t>* m, Node* a, Node* b) = 0;
   virtual T expected(T a, T b) = 0;
-  virtual ~BinopGen() {}
+  virtual ~BinopGen() = default;
 };
 
 // A helper class to generate various combination of input shape combinations

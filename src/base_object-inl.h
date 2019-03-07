@@ -61,10 +61,18 @@ Persistent<v8::Object>& BaseObject::persistent() {
 }
 
 
-v8::Local<v8::Object> BaseObject::object() {
-  return PersistentToLocal(env_->isolate(), persistent_handle_);
+v8::Local<v8::Object> BaseObject::object() const {
+  return PersistentToLocal::Default(env_->isolate(), persistent_handle_);
 }
 
+v8::Local<v8::Object> BaseObject::object(v8::Isolate* isolate) const {
+  v8::Local<v8::Object> handle = object();
+
+  DCHECK_EQ(handle->CreationContext()->GetIsolate(), isolate);
+  DCHECK_EQ(env_->isolate(), isolate);
+
+  return handle;
+}
 
 Environment* BaseObject::env() const {
   return env_;
@@ -83,23 +91,16 @@ T* BaseObject::FromJSObject(v8::Local<v8::Object> object) {
 }
 
 
-void BaseObject::DeleteMe(void* data) {
-  BaseObject* self = static_cast<BaseObject*>(data);
-  delete self;
-}
-
-
 void BaseObject::MakeWeak() {
   persistent_handle_.SetWeak(
       this,
       [](const v8::WeakCallbackInfo<BaseObject>& data) {
-        BaseObject* obj = data.GetParameter();
+        std::unique_ptr<BaseObject> obj(data.GetParameter());
         // Clear the persistent handle so that ~BaseObject() doesn't attempt
         // to mess with internal fields, since the JS object may have
         // transitioned into an invalid state.
         // Refs: https://github.com/nodejs/node/issues/18897
         obj->persistent_handle_.Reset();
-        delete obj;
       }, v8::WeakCallbackType::kParameter);
 }
 
@@ -112,10 +113,8 @@ void BaseObject::ClearWeak() {
 v8::Local<v8::FunctionTemplate>
 BaseObject::MakeLazilyInitializedJSTemplate(Environment* env) {
   auto constructor = [](const v8::FunctionCallbackInfo<v8::Value>& args) {
-#ifdef DEBUG
-    CHECK(args.IsConstructCall());
-    CHECK_GT(args.This()->InternalFieldCount(), 0);
-#endif
+    DCHECK(args.IsConstructCall());
+    DCHECK_GT(args.This()->InternalFieldCount(), 0);
     args.This()->SetAlignedPointerInInternalField(0, nullptr);
   };
 
