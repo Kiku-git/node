@@ -1,7 +1,10 @@
+#include "string_decoder.h"  // NOLINT(build/include_inline)
+#include "string_decoder-inl.h"
+
 #include "env-inl.h"
 #include "node_buffer.h"
 #include "string_bytes.h"
-#include "string_decoder-inl.h"
+#include "util.h"
 
 using v8::Array;
 using v8::ArrayBufferView;
@@ -307,11 +310,11 @@ void InitializeStringDecoder(Local<Object> target,
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "encodings"),
-              encodings).FromJust();
+              encodings).Check();
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "kSize"),
-              Integer::New(isolate, sizeof(StringDecoder))).FromJust();
+              Integer::New(isolate, sizeof(StringDecoder))).Check();
 
   env->SetMethod(target, "decode", DecodeData);
   env->SetMethod(target, "flush", FlushData);

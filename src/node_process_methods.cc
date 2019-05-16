@@ -1,5 +1,4 @@
 #include "base_object-inl.h"
-#include "base_object.h"
 #include "env-inl.h"
 #include "node.h"
 #include "node_errors.h"
@@ -60,13 +59,6 @@ Mutex umask_mutex;
 // used in Hrtime() and Uptime() below
 #define NANOS_PER_SEC 1000000000
 
-#ifdef _WIN32
-/* MAX_PATH is in characters, not bytes. Make sure we have enough headroom. */
-#define CHDIR_BUFSIZE (MAX_PATH * 4)
-#else
-#define CHDIR_BUFSIZE (PATH_MAX)
-#endif
-
 static void Abort(const FunctionCallbackInfo<Value>& args) {
   Abort();
 }
@@ -82,7 +74,7 @@ static void Chdir(const FunctionCallbackInfo<Value>& args) {
   if (err) {
     // Also include the original working directory, since that will usually
     // be helpful information when debugging a `chdir()` failure.
-    char buf[CHDIR_BUFSIZE];
+    char buf[PATH_MAX_BYTES];
     size_t cwd_len = sizeof(buf);
     uv_cwd(buf, &cwd_len);
     return env->ThrowUVException(err, "chdir", nullptr, buf, *path);
@@ -119,7 +111,8 @@ static void CPUUsage(const FunctionCallbackInfo<Value>& args) {
 
 static void Cwd(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  char buf[CHDIR_BUFSIZE];
+  CHECK(env->has_run_bootstrapping_code());
+  char buf[PATH_MAX_BYTES];
   size_t cwd_len = sizeof(buf);
   int err = uv_cwd(buf, &cwd_len);
   if (err)
@@ -172,6 +165,12 @@ static void Kill(const FunctionCallbackInfo<Value>& args) {
   if (!args[0]->Int32Value(context).To(&pid)) return;
   int sig;
   if (!args[1]->Int32Value(context).To(&sig)) return;
+    // TODO(joyeecheung): white list the signals?
+
+#if HAVE_INSPECTOR
+  profiler::EndStartedProfilers(env);
+#endif
+
   int err = uv_kill(pid, sig);
   args.GetReturnValue().Set(err);
 }
@@ -221,12 +220,13 @@ static void StopProfilerIdleNotifier(const FunctionCallbackInfo<Value>& args) {
 }
 
 static void Umask(const FunctionCallbackInfo<Value>& args) {
-  uint32_t old;
-
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(env->has_run_bootstrapping_code());
   CHECK_EQ(args.Length(), 1);
   CHECK(args[0]->IsUndefined() || args[0]->IsUint32());
   Mutex::ScopedLock scoped_lock(per_process::umask_mutex);
 
+  uint32_t old;
   if (args[0]->IsUndefined()) {
     old = umask(0);
     umask(static_cast<mode_t>(old));
@@ -256,7 +256,7 @@ static void GetActiveRequests(const FunctionCallbackInfo<Value>& args) {
     AsyncWrap* w = req_wrap->GetAsyncWrap();
     if (w->persistent().IsEmpty())
       continue;
-    request_v.push_back(w->GetOwner());
+    request_v.emplace_back(w->GetOwner());
   }
 
   args.GetReturnValue().Set(
@@ -272,7 +272,7 @@ void GetActiveHandles(const FunctionCallbackInfo<Value>& args) {
   for (auto w : *env->handle_wrap_queue()) {
     if (!HandleWrap::HasRef(w))
       continue;
-    handle_v.push_back(w->GetOwner());
+    handle_v.emplace_back(w->GetOwner());
   }
   args.GetReturnValue().Set(
       Array::New(env->isolate(), handle_v.data(), handle_v.size()));
@@ -427,6 +427,7 @@ static void InitializeProcessMethods(Local<Object> target,
   env->SetMethod(target, "dlopen", binding::DLOpen);
   env->SetMethod(target, "reallyExit", ReallyExit);
   env->SetMethodNoSideEffect(target, "uptime", Uptime);
+  env->SetMethod(target, "patchProcessObject", PatchProcessObject);
 }
 
 }  // namespace node

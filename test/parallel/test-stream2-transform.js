@@ -178,7 +178,7 @@ const Transform = require('_stream_transform');
   // Verify asymmetric transform (expand)
   const pt = new Transform();
 
-  // emit each chunk 2 times.
+  // Emit each chunk 2 times.
   pt._transform = function(chunk, encoding, cb) {
     setTimeout(function() {
       pt.push(chunk);
@@ -229,7 +229,7 @@ const Transform = require('_stream_transform');
   };
 
   pt._flush = function(cb) {
-    // just output whatever we have.
+    // Just output whatever we have.
     pt.push(Buffer.from(this.state));
     this.state = '';
     cb();
@@ -321,16 +321,10 @@ const Transform = require('_stream_transform');
 
   pt.end();
 
-  // The next readable is emitted on the next tick.
-  assert.strictEqual(emits, 0);
-
-  process.on('nextTick', function() {
-    assert.strictEqual(emits, 1);
-    assert.strictEqual(pt.read(5).toString(), 'l');
-    assert.strictEqual(pt.read(5), null);
-
-    assert.strictEqual(emits, 1);
-  });
+  assert.strictEqual(emits, 1);
+  assert.strictEqual(pt.read(5).toString(), 'l');
+  assert.strictEqual(pt.read(5), null);
+  assert.strictEqual(emits, 1);
 }
 
 {
@@ -407,7 +401,7 @@ const Transform = require('_stream_transform');
     }
   };
 
-  // anything except null/undefined is fine.
+  // Anything except null/undefined is fine.
   // those are "magic" in the stream API, because they signal EOF.
   const objects = [
     { foo: 'bar' },
@@ -448,7 +442,7 @@ const Transform = require('_stream_transform');
     }
   };
 
-  // anything except null/undefined is fine.
+  // Anything except null/undefined is fine.
   // those are "magic" in the stream API, because they signal EOF.
   const objects = [
     { foo: 'bar' },

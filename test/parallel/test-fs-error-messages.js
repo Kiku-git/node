@@ -190,7 +190,7 @@ function re(literals, ...values) {
   );
 }
 
-// link nonexistent file
+// Link nonexistent file
 {
   const validateError = (err) => {
     assert.strictEqual(nonexistentFile, err.path);
@@ -308,7 +308,7 @@ function re(literals, ...values) {
   );
 }
 
-// rename non-empty directory
+// Rename non-empty directory
 {
   const validateError = (err) => {
     assert.strictEqual(existingDir, err.path);
@@ -321,7 +321,7 @@ function re(literals, ...values) {
         `ENOTEMPTY: directory not empty, rename '${existingDir}' -> ` +
         `'${existingDir2}'`);
       assert.strictEqual(err.errno, UV_ENOTEMPTY);
-    } else if (err.code === 'EXDEV') {  // not on the same mounted filesystem
+    } else if (err.code === 'EXDEV') {  // Not on the same mounted filesystem
       assert.strictEqual(
         err.message,
         `EXDEV: cross-device link not permitted, rename '${existingDir}' -> ` +

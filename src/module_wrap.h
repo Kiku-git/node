@@ -12,11 +12,6 @@
 namespace node {
 namespace loader {
 
-enum PackageMainCheck : bool {
-    CheckMain = true,
-    IgnoreMain = false
-};
-
 enum ScriptType : int {
   kScript,
   kModule,
@@ -29,14 +24,8 @@ enum HostDefinedOptions : int {
   kLength = 10,
 };
 
-v8::Maybe<url::URL> Resolve(Environment* env,
-                            const std::string& specifier,
-                            const url::URL& base,
-                            PackageMainCheck read_pkg_json = CheckMain);
-
 class ModuleWrap : public BaseObject {
  public:
-  static const std::string EXTENSIONS[];
   static void Initialize(v8::Local<v8::Object> target,
                          v8::Local<v8::Value> unused,
                          v8::Local<v8::Context> context,
@@ -75,6 +64,7 @@ class ModuleWrap : public BaseObject {
       const v8::FunctionCallbackInfo<v8::Value>& args);
 
   static void Resolve(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetPackageType(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetImportModuleDynamicallyCallback(
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetInitializeImportMetaObjectCallback(
@@ -85,11 +75,11 @@ class ModuleWrap : public BaseObject {
       v8::Local<v8::Module> referrer);
   static ModuleWrap* GetFromModule(node::Environment*, v8::Local<v8::Module>);
 
-  Persistent<v8::Module> module_;
-  Persistent<v8::String> url_;
+  v8::Global<v8::Module> module_;
+  v8::Global<v8::String> url_;
   bool linked_ = false;
-  std::unordered_map<std::string, Persistent<v8::Promise>> resolve_cache_;
-  Persistent<v8::Context> context_;
+  std::unordered_map<std::string, v8::Global<v8::Promise>> resolve_cache_;
+  v8::Global<v8::Context> context_;
   uint32_t id_;
 };
 

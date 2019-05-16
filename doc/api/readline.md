@@ -312,9 +312,13 @@ The `rl.write()` method will write the data to the `readline` `Interface`'s
 ### rl\[Symbol.asyncIterator\]()
 <!-- YAML
 added: v11.4.0
+changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26989
+    description: Symbol.asyncIterator support is no longer experimental.
 -->
 
-> Stability: 1 - Experimental
+> Stability: 2 - Stable
 
 * Returns: {AsyncIterator}
 
@@ -457,7 +461,7 @@ For instance: `[[substr1, substr2, ...], originalsubstring]`.
 function completer(line) {
   const completions = '.help .error .exit .quit .q'.split(' ');
   const hits = completions.filter((c) => c.startsWith(line));
-  // show all completions if none found
+  // Show all completions if none found
   return [hits.length ? hits : completions, line];
 }
 ```
@@ -595,6 +599,34 @@ const rl = readline.createInterface({
 rl.on('line', (line) => {
   console.log(`Line from file: ${line}`);
 });
+```
+
+Currently, `for`-`await`-`of` loop can be a bit slower. If `async` / `await`
+flow and speed are both essential, a mixed approach can be applied:
+
+```js
+const { once } = require('events');
+const { createReadStream } = require('fs');
+const { createInterface } = require('readline');
+
+(async function processLineByLine() {
+  try {
+    const rl = createInterface({
+      input: createReadStream('big-file.txt'),
+      crlfDelay: Infinity
+    });
+
+    rl.on('line', (line) => {
+      // Process the line.
+    });
+
+    await once(rl, 'close');
+
+    console.log('File processed.');
+  } catch (err) {
+    console.error(err);
+  }
+})();
 ```
 
 [`'SIGCONT'`]: readline.html#readline_event_sigcont

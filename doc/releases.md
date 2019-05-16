@@ -235,6 +235,12 @@ and also if there are non-trivial API changes. The rules are not yet strictly
 defined, so if in doubt, please confer with someone that will have a more
 informed perspective, such as a member of the NAN team.
 
+A registry of currently used `NODE_MODULE_VERSION` values is maintained at
+<https://github.com/nodejs/node/blob/master/doc/abi_version_registry.json>.
+When bumping `NODE_MODULE_VERSION`, you should choose a new value not listed
+in the registry. Also include a change to the registry in your commit to
+reflect the newly used value.
+
 It is current TSC policy to bump major version when ABI changes. If you
 see a need to bump `NODE_MODULE_VERSION` then you should consult the TSC.
 Commits may need to be reverted or a major version bump may need to happen.
@@ -333,6 +339,21 @@ release. When committing these to git, use the following message format:
 
 ```txt
 YYYY-MM-DD, Version x.y.z (Release Type)
+
+Notable changes:
+
+* Copy the notable changes list here, reformatted for plain-text
+```
+
+For security releases, begin the commit message with the phrase
+`This is a security release.` to allow the
+[distribution indexer](https://github.com/nodejs/nodejs-dist-indexer) to
+identify it as such:
+
+```txt
+YYYY-MM-DD, Version x.y.z (Release Type)
+
+This is a security release.
 
 Notable changes:
 
@@ -645,5 +666,5 @@ _In whatever form you do this..._
 [CI lockdown procedure]: https://github.com/nodejs/build/blob/master/doc/jenkins-guide.md#restricting-access-for-security-releases
 [Build issue tracker]: https://github.com/nodejs/build/issues/new
 [nodejs.org release-post.js script]: https://github.com/nodejs/nodejs.org/blob/master/scripts/release-post.js
-[Partner Communities]: https://github.com/nodejs/community-committee/blob/master/PARTNER_COMMUNITIES.md
+[Partner Communities]: https://github.com/nodejs/community-committee/blob/master/governance/PARTNER_COMMUNITIES.md
 [webchat.freenode.net]: https://webchat.freenode.net/

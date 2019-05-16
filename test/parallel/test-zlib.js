@@ -39,12 +39,12 @@ let zlibPairs = [
 // How fast to trickle through the slowstream
 let trickle = [128, 1024, 1024 * 1024];
 
-// tunable options for zlib classes.
+// Tunable options for zlib classes.
 
 // several different chunk sizes
 let chunkSize = [128, 1024, 1024 * 16, 1024 * 1024];
 
-// this is every possible value.
+// This is every possible value.
 let level = [-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 let windowBits = [8, 9, 10, 11, 12, 13, 14, 15];
 let memLevel = [1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -74,7 +74,7 @@ testFiles.forEach(common.mustCall((file) => {
 }, testFiles.length));
 
 
-// stream that saves everything
+// Stream that saves everything
 class BufferStream extends stream.Stream {
   constructor() {
     super();
@@ -144,7 +144,7 @@ class SlowStream extends stream.Stream {
   }
 
   end(chunk) {
-    // walk over the chunk in blocks.
+    // Walk over the chunk in blocks.
     this.chunk = chunk;
     this.length = chunk.length;
     this.resume();
@@ -210,7 +210,7 @@ testKeys.forEach(common.mustCall((file) => {
                   }
                 }));
 
-                // the magic happens here.
+                // The magic happens here.
                 ss.pipe(def).pipe(inf).pipe(buf);
                 ss.end(test);
               }, zlibPairs.length));

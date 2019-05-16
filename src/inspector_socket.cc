@@ -10,8 +10,8 @@
 
 #include "openssl/sha.h"  // Sha-1 hash
 
-#include <map>
 #include <cstring>
+#include <map>
 
 #define ACCEPT_KEY_LENGTH base64_encoded_size(20)
 
@@ -156,10 +156,10 @@ static void generate_accept_string(const std::string& client_key,
 }
 
 static std::string TrimPort(const std::string& host) {
-  size_t last_colon_pos = host.rfind(":");
+  size_t last_colon_pos = host.rfind(':');
   if (last_colon_pos == std::string::npos)
     return host;
-  size_t bracket = host.rfind("]");
+  size_t bracket = host.rfind(']');
   if (bracket == std::string::npos || last_colon_pos > bracket)
     return host.substr(0, last_colon_pos);
   return host;
@@ -554,10 +554,11 @@ class HttpHandler : public ProtocolHandler {
   static int OnMessageComplete(parser_t* parser) {
     // Event needs to be fired after the parser is done.
     HttpHandler* handler = From(parser);
-    handler->events_.push_back(
-        HttpEvent(handler->path_, parser->upgrade, parser->method == HTTP_GET,
-                  handler->HeaderValue("Sec-WebSocket-Key"),
-                  handler->HeaderValue("Host")));
+    handler->events_.emplace_back(handler->path_,
+                                  parser->upgrade,
+                                  parser->method == HTTP_GET,
+                                  handler->HeaderValue("Sec-WebSocket-Key"),
+                                  handler->HeaderValue("Host"));
     handler->path_ = "";
     handler->parsing_value_ = false;
     handler->headers_.clear();

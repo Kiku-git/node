@@ -112,7 +112,7 @@ added: v0.11.3
 
 * Returns: {string[]}
 
-Returns an array of IP address strings, formatted according to [rfc5952][],
+Returns an array of IP address strings, formatted according to [RFC 5952][],
 that are currently configured for DNS resolution. A string will include a port
 section if a custom port is used.
 
@@ -154,7 +154,9 @@ changes:
 * `callback` {Function}
   - `err` {Error}
   - `address` {string} A string representation of an IPv4 or IPv6 address.
-  - `family` {integer} `4` or `6`, denoting the family of `address`.
+  - `family` {integer} `4` or `6`, denoting the family of `address`, or `0` if
+    the address is not an IPv4 or IPv6 address. `0` is a likely indicator of a
+    bug in the name resolution service used by the operating system.
 
 Resolves a hostname (e.g. `'nodejs.org'`) into the first found A (IPv4) or
 AAAA (IPv6) record. All `option` properties are optional. If `options` is an
@@ -166,7 +168,7 @@ With the `all` option set to `true`, the arguments for `callback` change to
 properties `address` and `family`.
 
 On error, `err` is an [`Error`][] object, where `err.code` is the error code.
-Keep in mind that `err.code` will be set to `'ENOENT'` not only when
+Keep in mind that `err.code` will be set to `'ENOTFOUND'` not only when
 the hostname does not exist but also when the lookup fails in other ways
 such as no available file descriptors.
 
@@ -367,6 +369,10 @@ Here is an example of the `ret` object passed to the callback:
     minttl: 60 } ]
 ```
 
+DNS server operators may choose not to respond to `ANY`
+queries. It may be better to call individual methods like [`dns.resolve4()`][],
+[`dns.resolveMx()`][], and so on. For more details, see [RFC 8482][].
+
 ## dns.resolveCname(hostname, callback)
 <!-- YAML
 added: v0.3.2
@@ -523,7 +529,7 @@ added: v0.1.27
 * `hostname` {string}
 * `callback` {Function}
   - `err` {Error}
-  - `records` {string[][]}
+  - `records` <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript/Data_structures#String_type" class="type">&lt;string[][]&gt;</a>
 
 Uses the DNS protocol to resolve text queries (`TXT` records) for the
 `hostname`. The `records` argument passed to the `callback` function is a
@@ -551,10 +557,10 @@ one of the [DNS error codes][].
 <!-- YAML
 added: v0.11.3
 -->
-* `servers` {string[]} array of [rfc5952][] formatted addresses
+* `servers` {string[]} array of [RFC 5952][] formatted addresses
 
 Sets the IP address and port of servers to be used when performing DNS
-resolution. The `servers` argument is an array of [rfc5952][] formatted
+resolution. The `servers` argument is an array of [RFC 5952][] formatted
 addresses. If the port is the IANA default DNS port (53) it can be omitted.
 
 ```js
@@ -572,7 +578,7 @@ The `dns.setServers()` method must not be called while a DNS query is in
 progress.
 
 The [`dns.setServers()`][] method affects only [`dns.resolve()`][],
-[`dns.resolve*()`][] and [`dns.reverse()`][] (and specifically *not*
+`dns.resolve*()` and [`dns.reverse()`][] (and specifically *not*
 [`dns.lookup()`][]).
 
 Note that this method works much like
@@ -584,7 +590,7 @@ earlier ones time out or result in some other error.
 
 ## DNS Promises API
 
-> Stability: 1 - Experimental
+> Stability: 2 - Stable
 
 The `dns.promises` API provides an alternative set of asynchronous DNS methods
 that return `Promise` objects rather than using callbacks. The API is accessible
@@ -643,7 +649,7 @@ added: v10.6.0
 
 * Returns: {string[]}
 
-Returns an array of IP address strings, formatted according to [rfc5952][],
+Returns an array of IP address strings, formatted according to [RFC 5952][],
 that are currently configured for DNS resolution. A string will include a port
 section if a custom port is used.
 
@@ -686,7 +692,7 @@ being an array of objects with the properties `address` and `family`.
 
 On error, the `Promise` is rejected with an [`Error`][] object, where `err.code`
 is the error code.
-Keep in mind that `err.code` will be set to `'ENOENT'` not only when
+Keep in mind that `err.code` will be set to `'ENOTFOUND'` not only when
 the hostname does not exist but also when the lookup fails in other ways
 such as no available file descriptors.
 
@@ -1004,10 +1010,10 @@ is one of the [DNS error codes](#dns_error_codes).
 <!-- YAML
 added: v10.6.0
 -->
-* `servers` {string[]} array of [rfc5952][] formatted addresses
+* `servers` {string[]} array of [RFC 5952][] formatted addresses
 
 Sets the IP address and port of servers to be used when performing DNS
-resolution. The `servers` argument is an array of [rfc5952][] formatted
+resolution. The `servers` argument is an array of [RFC 5952][] formatted
 addresses. If the port is the IANA default DNS port (53) it can be omitted.
 
 ```js
@@ -1142,5 +1148,6 @@ uses. For instance, _they do not use the configuration from `/etc/hosts`_.
 [`util.promisify()`]: util.html#util_util_promisify_original
 [DNS error codes]: #dns_error_codes
 [Implementation considerations section]: #dns_implementation_considerations
-[rfc5952]: https://tools.ietf.org/html/rfc5952#section-6
+[RFC 8482]: https://tools.ietf.org/html/rfc8482
+[RFC 5952]: https://tools.ietf.org/html/rfc5952#section-6
 [supported `getaddrinfo` flags]: #dns_supported_getaddrinfo_flags

@@ -49,7 +49,7 @@ putIn.run(testFile);
 // save it to a file
 putIn.run([`.save ${saveFileName}`]);
 
-// the file should have what I wrote
+// The file should have what I wrote
 assert.strictEqual(fs.readFileSync(saveFileName, 'utf8'),
                    `${testFile.join('\n')}\n`);
 
@@ -99,12 +99,12 @@ let loadFile = join(tmpdir.path, 'file.does.not.exist');
 putIn.write = function(data) {
   // Make sure I get a failed to load message and not some crazy error
   assert.strictEqual(data, `Failed to load:${loadFile}\n`);
-  // eat me to avoid work
+  // Eat me to avoid work
   putIn.write = () => {};
 };
 putIn.run([`.load ${loadFile}`]);
 
-// throw error on loading directory
+// Throw error on loading directory
 loadFile = tmpdir.path;
 putIn.write = function(data) {
   assert.strictEqual(data, `Failed to load:${loadFile} is not a valid file\n`);

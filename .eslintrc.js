@@ -1,5 +1,7 @@
 'use strict';
 
+/* eslint-env node */
+
 const Module = require('module');
 const path = require('path');
 
@@ -31,13 +33,14 @@ Module._findPath = (request, paths, isMain) => {
 module.exports = {
   root: true,
   plugins: ['markdown', 'node-core'],
-  env: { node: true, es6: true },
   parser: 'babel-eslint',
   parserOptions: { sourceType: 'script' },
   overrides: [
     {
       files: [
         'doc/api/esm.md',
+        'test/es-module/test-esm-type-flag.js',
+        'test/es-module/test-esm-type-flag-alias.js',
         '*.mjs',
         'test/es-module/test-esm-example-loader.js',
       ],
@@ -56,13 +59,15 @@ module.exports = {
     'array-callback-return': 'error',
     'arrow-parens': ['error', 'always'],
     'arrow-spacing': ['error', { before: true, after: true }],
+    'block-scoped-var': 'error',
     'block-spacing': 'error',
     'brace-style': ['error', '1tbs', { allowSingleLine: true }],
     'capitalized-comments': ['error', 'always', {
       line: {
-        // Ignore all lines that have less characters than 40 and all lines that
+        // Ignore all lines that have less characters than 20 and all lines that
         // start with something that looks like a variable name or code.
-        ignorePattern: '^.{0,40}$|^ [a-z]+ ?[0-9A-Z_.(/=:[#-]|^ std',
+        // eslint-disable-next-line max-len
+        ignorePattern: '.{0,20}$|[a-z]+ ?[0-9A-Z_.(/=:[#-]|std|http|ssh|ftp|(let|var|const) [a-z_A-Z0-9]+ =|[b-z] |[a-z]*[0-9].* ',
         ignoreInlineComments: true,
         ignoreConsecutiveComments: true,
       },
@@ -83,6 +88,7 @@ module.exports = {
     'func-call-spacing': 'error',
     'func-name-matching': 'error',
     'func-style': ['error', 'declaration', { allowArrowFunctions: true }],
+    'getter-return': 'error',
     'indent': ['error', 2, {
       ArrayExpression: 'first',
       CallExpression: { arguments: 'first' },
@@ -170,32 +176,36 @@ module.exports = {
         message: '__defineSetter__ is deprecated.',
       },
     ],
-    // If this list is modified, please copy the change to lib/.eslintrc.yaml
-    // and test/.eslintrc.yaml.
+    // If this list is modified, please copy changes that should apply to ./lib
+    // as well to lib/.eslintrc.yaml.
     'no-restricted-syntax': [
       'error',
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='deepStrictEqual'][arguments.2.type='Literal']",
+        selector: "CallExpression[callee.property.name='deepStrictEqual'][arguments.2.type='Literal']",
         message: 'Do not use a literal for the third argument of assert.deepStrictEqual()',
       },
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='doesNotThrow']",
-        message: 'Please replace `assert.doesNotThrow()` and add a comment next to the code instead.',
+        selector: "CallExpression[callee.property.name='doesNotThrow']",
+        message: 'Do not use `assert.doesNotThrow()`. Write the code without the wrapper and add a comment instead.',
       },
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='rejects'][arguments.length<2]",
+        selector: "CallExpression[callee.property.name='doesNotReject']",
+        message: 'Do not use `assert.doesNotReject()`. Write the code without the wrapper and add a comment instead.',
+      },
+      {
+        selector: "CallExpression[callee.property.name='rejects'][arguments.length<2]",
         message: '`assert.rejects()` must be invoked with at least two arguments.',
       },
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='strictEqual'][arguments.2.type='Literal']",
+        selector: "CallExpression[callee.property.name='strictEqual'][arguments.2.type='Literal']",
         message: 'Do not use a literal for the third argument of assert.strictEqual()',
       },
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.1.type='Literal']:not([arguments.1.regex])",
+        selector: "CallExpression[callee.property.name='throws'][arguments.1.type='Literal']:not([arguments.1.regex])",
         message: 'Use an object as second argument of `assert.throws()`.',
       },
       {
-        selector: "CallExpression[callee.object.name='assert'][callee.property.name='throws'][arguments.length<2]",
+        selector: "CallExpression[callee.property.name='throws'][arguments.length<2]",
         message: '`assert.throws()` must be invoked with at least two arguments.',
       },
       {
@@ -210,6 +220,22 @@ module.exports = {
         selector: 'ThrowStatement > CallExpression[callee.name=/Error$/]',
         message: 'Use `new` keyword when throwing an `Error`.',
       },
+      {
+        selector: "CallExpression[callee.property.name='notDeepStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
+        message: 'The first argument should be the `actual`, not the `expected` value.',
+      },
+      {
+        selector: "CallExpression[callee.property.name='notStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
+        message: 'The first argument should be the `actual`, not the `expected` value.',
+      },
+      {
+        selector: "CallExpression[callee.property.name='deepStrictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
+        message: 'The first argument should be the `actual`, not the `expected` value.',
+      },
+      {
+        selector: "CallExpression[callee.property.name='strictEqual'][arguments.0.type='Literal']:not([arguments.1.type='Literal']):not([arguments.1.type='ObjectExpression']):not([arguments.1.type='ArrayExpression']):not([arguments.1.type='UnaryExpression'])",
+        message: 'The first argument should be the `actual`, not the `expected` value.',
+      }
     ],
     /* eslint-enable max-len */
     'no-return-await': 'error',
@@ -281,12 +307,6 @@ module.exports = {
     BigInt: 'readable',
     BigInt64Array: 'readable',
     BigUint64Array: 'readable',
-    DTRACE_HTTP_CLIENT_REQUEST: 'readable',
-    DTRACE_HTTP_CLIENT_RESPONSE: 'readable',
-    DTRACE_HTTP_SERVER_REQUEST: 'readable',
-    DTRACE_HTTP_SERVER_RESPONSE: 'readable',
-    DTRACE_NET_SERVER_CONNECTION: 'readable',
-    DTRACE_NET_STREAM_END: 'readable',
     TextEncoder: 'readable',
     TextDecoder: 'readable',
     queueMicrotask: 'readable',

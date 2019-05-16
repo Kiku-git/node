@@ -1,4 +1,4 @@
-// test the speed of .pipe() with sockets
+// Test the speed of .pipe() with sockets
 'use strict';
 
 const common = require('../common.js');
@@ -33,7 +33,7 @@ function main({ dur, len, type }) {
   const reader = new Reader();
   const writer = new Writer();
 
-  // the actual benchmark.
+  // The actual benchmark.
   const server = net.createServer((socket) => {
     reader.pipe(socket);
   });
@@ -73,7 +73,7 @@ Writer.prototype.write = function(chunk, encoding, cb) {
   return true;
 };
 
-// doesn't matter, never emits anything.
+// Doesn't matter, never emits anything.
 Writer.prototype.on = function() {};
 Writer.prototype.once = function() {};
 Writer.prototype.emit = function() {};

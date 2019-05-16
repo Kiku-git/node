@@ -7,7 +7,6 @@
 // A union of const uint8_t* or const uint16_t* data that can be
 // turned into external v8::String when given an isolate.
 
-#include "env.h"
 #include "v8.h"
 
 namespace node {
@@ -24,10 +23,14 @@ class NonOwningExternalOneByteResource
   }
   size_t length() const override { return length_; }
 
+  NonOwningExternalOneByteResource(const NonOwningExternalOneByteResource&) =
+      delete;
+  NonOwningExternalOneByteResource& operator=(
+      const NonOwningExternalOneByteResource&) = delete;
+
  private:
   const uint8_t* data_;
   size_t length_;
-  DISALLOW_COPY_AND_ASSIGN(NonOwningExternalOneByteResource);
 };
 
 class NonOwningExternalTwoByteResource
@@ -40,10 +43,14 @@ class NonOwningExternalTwoByteResource
   const uint16_t* data() const override { return data_; }
   size_t length() const override { return length_; }
 
+  NonOwningExternalTwoByteResource(const NonOwningExternalTwoByteResource&) =
+      delete;
+  NonOwningExternalTwoByteResource& operator=(
+      const NonOwningExternalTwoByteResource&) = delete;
+
  private:
   const uint16_t* data_;
   size_t length_;
-  DISALLOW_COPY_AND_ASSIGN(NonOwningExternalTwoByteResource);
 };
 
 // Similar to a v8::String, but it's independent from Isolates

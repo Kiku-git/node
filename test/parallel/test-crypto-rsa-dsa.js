@@ -21,9 +21,17 @@ const dsaPubPem = fixtures.readSync('test_dsa_pubkey.pem', 'ascii');
 const dsaKeyPem = fixtures.readSync('test_dsa_privkey.pem', 'ascii');
 const dsaKeyPemEncrypted = fixtures.readSync('test_dsa_privkey_encrypted.pem',
                                              'ascii');
+const rsaPkcs8KeyPem = fixtures.readSync('test_rsa_pkcs8_privkey.pem');
+const dsaPkcs8KeyPem = fixtures.readSync('test_dsa_pkcs8_privkey.pem');
 
-const decryptError =
-  /^Error: error:06065064:digital envelope routines:EVP_DecryptFinal_ex:bad decrypt$/;
+const decryptError = {
+  message: 'error:06065064:digital envelope routines:EVP_DecryptFinal_ex:' +
+    'bad decrypt',
+  code: 'ERR_OSSL_EVP_BAD_DECRYPT',
+  reason: 'bad decrypt',
+  function: 'EVP_DecryptFinal_ex',
+  library: 'digital envelope routines',
+};
 
 // Test RSA encryption/decryption
 {
@@ -33,6 +41,9 @@ const decryptError =
   let encryptedBuffer = crypto.publicEncrypt(rsaPubPem, bufferToEncrypt);
 
   let decryptedBuffer = crypto.privateDecrypt(rsaKeyPem, encryptedBuffer);
+  assert.strictEqual(decryptedBuffer.toString(), input);
+
+  decryptedBuffer = crypto.privateDecrypt(rsaPkcs8KeyPem, encryptedBuffer);
   assert.strictEqual(decryptedBuffer.toString(), input);
 
   let decryptedBufferWithPassword = crypto.privateDecrypt({
@@ -62,6 +73,42 @@ const decryptError =
     passphrase: Buffer.from('password')
   }, encryptedBuffer);
   assert.strictEqual(decryptedBufferWithPassword.toString(), input);
+
+  // Now with explicit RSA_PKCS1_PADDING.
+  encryptedBuffer = crypto.privateEncrypt({
+    padding: crypto.constants.RSA_PKCS1_PADDING,
+    key: rsaKeyPemEncrypted,
+    passphrase: Buffer.from('password')
+  }, bufferToEncrypt);
+
+  decryptedBufferWithPassword = crypto.publicDecrypt({
+    padding: crypto.constants.RSA_PKCS1_PADDING,
+    key: rsaKeyPemEncrypted,
+    passphrase: Buffer.from('password')
+  }, encryptedBuffer);
+  assert.strictEqual(decryptedBufferWithPassword.toString(), input);
+
+  // Omitting padding should be okay because RSA_PKCS1_PADDING is the default.
+  decryptedBufferWithPassword = crypto.publicDecrypt({
+    key: rsaKeyPemEncrypted,
+    passphrase: Buffer.from('password')
+  }, encryptedBuffer);
+  assert.strictEqual(decryptedBufferWithPassword.toString(), input);
+
+  // Now with RSA_NO_PADDING. Plaintext needs to match key size.
+  const plaintext = 'x'.repeat(128);
+  encryptedBuffer = crypto.privateEncrypt({
+    padding: crypto.constants.RSA_NO_PADDING,
+    key: rsaKeyPemEncrypted,
+    passphrase: Buffer.from('password')
+  }, Buffer.from(plaintext));
+
+  decryptedBufferWithPassword = crypto.publicDecrypt({
+    padding: crypto.constants.RSA_NO_PADDING,
+    key: rsaKeyPemEncrypted,
+    passphrase: Buffer.from('password')
+  }, encryptedBuffer);
+  assert.strictEqual(decryptedBufferWithPassword.toString(), plaintext);
 
   encryptedBuffer = crypto.publicEncrypt(certPem, bufferToEncrypt);
 
@@ -119,8 +166,14 @@ function test_rsa(padding) {
     padding: padding
   }, bufferToEncrypt);
 
-  const decryptedBuffer = crypto.privateDecrypt({
+  let decryptedBuffer = crypto.privateDecrypt({
     key: rsaKeyPem,
+    padding: padding
+  }, encryptedBuffer);
+  assert.deepStrictEqual(decryptedBuffer, input);
+
+  decryptedBuffer = crypto.privateDecrypt({
+    key: rsaPkcs8KeyPem,
     padding: padding
   }, encryptedBuffer);
   assert.deepStrictEqual(decryptedBuffer, input);
@@ -147,6 +200,16 @@ rsaSign.update(rsaPubPem);
 let rsaSignature = rsaSign.sign(rsaKeyPem, 'hex');
 assert.strictEqual(rsaSignature, expectedSignature);
 
+rsaVerify.update(rsaPubPem);
+assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
+
+// Test RSA PKCS#8 key signing/verification
+rsaSign = crypto.createSign('SHA1');
+rsaSign.update(rsaPubPem);
+rsaSignature = rsaSign.sign(rsaPkcs8KeyPem, 'hex');
+assert.strictEqual(rsaSignature, expectedSignature);
+
+rsaVerify = crypto.createVerify('SHA1');
 rsaVerify.update(rsaPubPem);
 assert.strictEqual(rsaVerify.verify(rsaPubPem, rsaSignature, 'hex'), true);
 
@@ -216,7 +279,7 @@ assert.throws(() => {
   const input = 'I AM THE WALRUS';
 
   // DSA signatures vary across runs so there is no static string to verify
-  // against
+  // against.
   const sign = crypto.createSign('SHA1');
   sign.update(input);
   const signature = sign.sign(dsaKeyPem, 'hex');
@@ -239,6 +302,25 @@ assert.throws(() => {
 
 
 //
+// Test DSA signing and verification with PKCS#8 private key
+//
+{
+  const input = 'I AM THE WALRUS';
+
+  // DSA signatures vary across runs so there is no static string to verify
+  // against.
+  const sign = crypto.createSign('SHA1');
+  sign.update(input);
+  const signature = sign.sign(dsaPkcs8KeyPem, 'hex');
+
+  const verify = crypto.createVerify('SHA1');
+  verify.update(input);
+
+  assert.strictEqual(verify.verify(dsaPubPem, signature, 'hex'), true);
+}
+
+
+//
 // Test DSA signing and verification with encrypted key
 //
 const input = 'I AM THE WALRUS';
@@ -253,7 +335,7 @@ const input = 'I AM THE WALRUS';
 
 {
   // DSA signatures vary across runs so there is no static string to verify
-  // against
+  // against.
   const sign = crypto.createSign('SHA1');
   sign.update(input);
   const signOptions = { key: dsaKeyPemEncrypted, passphrase: 'password' };

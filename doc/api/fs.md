@@ -1911,7 +1911,7 @@ console.log(fs.readFileSync('temp.txt', 'utf8'));
 // get the file descriptor of the file to be truncated
 const fd = fs.openSync('temp.txt', 'r+');
 
-// truncate the file to first four bytes
+// Truncate the file to first four bytes
 fs.ftruncate(fd, 4, (err) => {
   assert.ifError(err);
   console.log(fs.readFileSync('temp.txt', 'utf8'));
@@ -2277,7 +2277,10 @@ changes:
 Creates a unique temporary directory.
 
 Generates six random characters to be appended behind a required
-`prefix` to create a unique temporary directory.
+`prefix` to create a unique temporary directory. Due to platform
+inconsistencies, avoid trailing `X` characters in `prefix`. Some platforms,
+notably the BSDs, can return more than six random characters, and replace
+trailing `X` characters in `prefix` with random characters.
 
 The created folder path is passed as a string to the callback's second
 parameter.
@@ -3040,7 +3043,7 @@ changes:
     description: The `target` and `path` parameters can be WHATWG `URL` objects
                  using `file:` protocol. Support is currently still
                  *experimental*.
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/23724
     description: If the `type` argument is left undefined, Node will autodetect
                  `target` type and automatically select `dir` or `file`
@@ -3078,7 +3081,7 @@ changes:
     description: The `target` and `path` parameters can be WHATWG `URL` objects
                  using `file:` protocol. Support is currently still
                  *experimental*.
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/23724
     description: If the `type` argument is left undefined, Node will autodetect
                  `target` type and automatically select `dir` or `file`
@@ -3589,8 +3592,12 @@ changes:
 * `callback` {Function}
   * `err` {Error}
 
-Asynchronously writes data to a file, replacing the file if it already exists.
-`data` can be a string or a buffer.
+When `file` is a filename, asynchronously writes data to the file, replacing the
+file if it already exists.  `data` can be a string or a buffer.
+
+When `file` is a file descriptor, the behavior is similar to calling
+`fs.write()` directly (which is recommended). See the notes below on using
+a file descriptor.
 
 The `encoding` option is ignored if `data` is a buffer.
 
@@ -3612,15 +3619,30 @@ It is unsafe to use `fs.writeFile()` multiple times on the same file without
 waiting for the callback. For this scenario, [`fs.createWriteStream()`][] is
 recommended.
 
-### File Descriptors
-1. Any specified file descriptor has to support writing.
-2. If a file descriptor is specified as the `file`, it will not be closed
-automatically.
-3. The writing will begin at the current position. For example, if the string
-`'Hello'` is written to the file descriptor, and if `', World'` is written with
-`fs.writeFile()` to the same file descriptor, the contents of the file would
-become `'Hello, World'`, instead of just `', World'`.
+### Using `fs.writeFile()` with File Descriptors
 
+When `file` is a file descriptor, the behavior is almost identical to directly
+calling `fs.write()` like:
+```javascript
+fs.write(fd, Buffer.from(data, options.encoding), callback);
+```
+
+The difference from directly calling `fs.write()` is that under some unusual
+conditions, `fs.write()` may write only part of the buffer and will need to be
+retried to write the remaining data, whereas `fs.writeFile()` will retry until
+the data is entirely written (or an error occurs).
+
+Since the implications of this are a common source of confusion, note that in
+the file descriptor case the file is not replaced! The data is not necessarily
+written to the beginning of the file, and the file's original data may remain
+before and/or after the newly written data.
+
+For example, if `fs.writeFile()` is called twice in a row, first to write the
+string `'Hello'`, then to write the string `', World'`, the file would contain
+`'Hello, World'`, and might contain some of the file's original data (depending
+on the size of the original file, and the position of the file descriptor).  If
+a file name had been used instead of a descriptor, the file would be guaranteed
+to contain only `', World'`.
 
 ## fs.writeFileSync(file, data[, options])
 <!-- YAML
@@ -3696,7 +3718,7 @@ this API: [`fs.write(fd, string...)`][].
 
 ## fs Promises API
 
-> Stability: 1 - Experimental
+> Stability: 2 - Stable
 
 The `fs.promises` API provides an alternative set of asynchronous file system
 methods that return `Promise` objects rather than using callbacks. The
@@ -3912,7 +3934,7 @@ async function doTruncate() {
     await filehandle.truncate(4);
   } finally {
     if (filehandle) {
-      // close the file if it is opened.
+      // Close the file if it is opened.
       await filehandle.close();
     }
   }
@@ -3939,7 +3961,7 @@ async function doTruncate() {
     await filehandle.truncate(10);
   } finally {
     if (filehandle) {
-      // close the file if it is opened.
+      // Close the file if it is opened.
       await filehandle.close();
     }
   }
@@ -4280,7 +4302,10 @@ added: v10.0.0
 
 Creates a unique temporary directory and resolves the `Promise` with the created
 folder path. A unique directory name is generated by appending six random
-characters to the end of the provided `prefix`.
+characters to the end of the provided `prefix`. Due to platform
+inconsistencies, avoid trailing `X` characters in `prefix`. Some platforms,
+notably the BSDs, can return more than six random characters, and replace
+trailing `X` characters in `prefix` with random characters.
 
 The optional `options` argument can be a string specifying an encoding, or an
 object with an `encoding` property specifying the character encoding to use.

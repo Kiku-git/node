@@ -3,13 +3,15 @@
 #include "inspector_socket_server.h"
 #include "inspector/main_thread_interface.h"
 #include "inspector/node_string.h"
+#include "base_object-inl.h"
 #include "env-inl.h"
 #include "debug_utils.h"
 #include "node.h"
 #include "node_crypto.h"
+#include "node_internals.h"
 #include "node_mutex.h"
 #include "v8-inspector.h"
-#include "util.h"
+#include "util-inl.h"
 #include "zlib.h"
 
 #include <deque>
@@ -215,8 +217,7 @@ class InspectorIoDelegate: public node::inspector::SocketServerDelegate {
                       const std::string& target_id,
                       const std::string& script_path,
                       const std::string& script_name);
-  ~InspectorIoDelegate() override {
-  }
+  ~InspectorIoDelegate() override = default;
 
   void StartSession(int session_id, const std::string& target_id) override;
   void MessageReceived(int session_id, const std::string& message) override;

@@ -41,7 +41,7 @@ if (cluster.isMaster && process.argv.length !== 3) {
   // Makes sure master is able to fork the worker
   cluster.on('fork', common.mustCall());
 
-  // makes sure the worker is ready
+  // Makes sure the worker is ready
   worker.on('online', common.mustCall());
 
   worker.on('message', common.mustCall(function(err) {
@@ -66,12 +66,12 @@ if (cluster.isMaster && process.argv.length !== 3) {
     server.on('error', function(err) {
       // Message to child process tells it to exit
       cp.send('end');
-      // propagate error to parent
+      // Propagate error to parent
       process.send(err);
     });
   }));
 } else if (process.argv.length === 3) {
-  // child process (of cluster.worker)
+  // Child process (of cluster.worker)
   const PIPE_NAME = process.argv[2];
 
   const server = net.createServer().listen(PIPE_NAME, common.mustCall(() => {

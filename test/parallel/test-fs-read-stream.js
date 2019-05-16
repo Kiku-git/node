@@ -55,6 +55,7 @@ const rangeFile = fixtures.path('x.txt');
 
   file.on('data', function(data) {
     assert.ok(data instanceof Buffer);
+    assert.ok(data.byteOffset % 8 === 0);
     assert.ok(!paused);
     file.length += data.length;
 
@@ -206,7 +207,7 @@ if (!common.isWindows) {
 }
 
 {
-  // pause and then resume immediately.
+  // Pause and then resume immediately.
   const pauseRes = fs.createReadStream(rangeFile);
   pauseRes.pause();
   pauseRes.resume();

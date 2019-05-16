@@ -29,6 +29,9 @@ const path = require('path');
 
 const backslash = /\\/g;
 
+if (!process.env.NODE_PENDING_DEPRECATION)
+  process.on('warning', common.mustNotCall());
+
 console.error('load test-module-loading.js');
 
 assert.strictEqual(require.main.id, '.');
@@ -45,7 +48,7 @@ require('../fixtures/not-main-module.js');
 }
 
 {
-  // require a file without any extensions
+  // Require a file without any extensions
   const foo_no_ext = require('../fixtures/foo');
   assert.strictEqual(foo_no_ext.foo, 'ok');
 }
@@ -105,6 +108,15 @@ assert.strictEqual(require('../fixtures/packages/index').ok, 'ok');
 assert.strictEqual(require('../fixtures/packages/main').ok, 'ok');
 assert.strictEqual(require('../fixtures/packages/main-index').ok, 'ok');
 assert.strictEqual(require('../fixtures/packages/missing-main').ok, 'ok');
+assert.throws(
+  () => require('../fixtures/packages/missing-main-no-index'),
+  {
+    code: 'MODULE_NOT_FOUND',
+    message: /packages[/\\]missing-main-no-index[/\\]doesnotexist\.js'\. Please.+package\.json.+valid "main"/,
+    path: /fixtures[/\\]packages[/\\]missing-main-no-index[/\\]package\.json/,
+    requestPath: /^\.\.[/\\]fixtures[/\\]packages[/\\]missing-main-no-index$/
+  }
+);
 
 assert.throws(
   function() { require('../fixtures/packages/unparseable'); },
@@ -154,7 +166,7 @@ require.extensions['.test'] = function(module, filename) {
 };
 
 assert.strictEqual(require('../fixtures/registerExt').test, 'passed');
-// unknown extension, load as .js
+// Unknown extension, load as .js
 assert.strictEqual(require('../fixtures/registerExt.hello.world').test,
                    'passed');
 
@@ -189,27 +201,33 @@ assert.throws(
 
   assert.strictEqual(require(`${loadOrder}file1`).file1, 'file1');
   assert.strictEqual(require(`${loadOrder}file2`).file2, 'file2.js');
-  try {
-    require(`${loadOrder}file3`);
-  } catch (e) {
-    // Not a real .node module, but we know we require'd the right thing.
-    if (common.isOpenBSD) // OpenBSD errors with non-ELF object error
-      assert.ok(/File not an ELF object/.test(e.message.replace(backslash, '/')));
-    else
-      assert.ok(/file3\.node/.test(e.message.replace(backslash, '/')));
-  }
+  assert.throws(
+    () => require(`${loadOrder}file3`),
+    (e) => {
+      // Not a real .node module, but we know we require'd the right thing.
+      if (common.isOpenBSD) { // OpenBSD errors with non-ELF object error
+        assert.ok(/File not an ELF object/.test(e.message.replace(backslash, '/')));
+      } else {
+        assert.ok(/file3\.node/.test(e.message.replace(backslash, '/')));
+      }
+      return true;
+    }
+  );
 
   assert.strictEqual(require(`${loadOrder}file4`).file4, 'file4.reg');
   assert.strictEqual(require(`${loadOrder}file5`).file5, 'file5.reg2');
   assert.strictEqual(require(`${loadOrder}file6`).file6, 'file6/index.js');
-  try {
-    require(`${loadOrder}file7`);
-  } catch (e) {
-    if (common.isOpenBSD)
-      assert.ok(/File not an ELF object/.test(e.message.replace(backslash, '/')));
-    else
-      assert.ok(/file7\/index\.node/.test(e.message.replace(backslash, '/')));
-  }
+  assert.throws(
+    () => require(`${loadOrder}file7`),
+    (e) => {
+      if (common.isOpenBSD) {
+        assert.ok(/File not an ELF object/.test(e.message.replace(backslash, '/')));
+      } else {
+        assert.ok(/file7\/index\.node/.test(e.message.replace(backslash, '/')));
+      }
+      return true;
+    }
+  );
 
   assert.strictEqual(require(`${loadOrder}file8`).file8, 'file8/index.reg');
   assert.strictEqual(require(`${loadOrder}file9`).file9, 'file9/index.reg2');

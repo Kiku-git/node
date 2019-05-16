@@ -21,20 +21,19 @@
 
 #include "env-inl.h"
 #include "string_bytes.h"
-#include "util.h"
-
-#include <array>
-#include <cerrno>
-#include <cstring>
 
 #ifdef __MINGW32__
 # include <io.h>
 #endif  // __MINGW32__
 
 #ifdef __POSIX__
-# include <climits>         // PATH_MAX on Solaris.
 # include <unistd.h>        // gethostname, sysconf
+# include <climits>         // PATH_MAX on Solaris.
 #endif  // __POSIX__
+
+#include <array>
+#include <cerrno>
+#include <cstring>
 
 namespace node {
 namespace os {
@@ -325,17 +324,17 @@ static void GetUserInfo(const FunctionCallbackInfo<Value>& args) {
 
   Local<Object> entry = Object::New(env->isolate());
 
-  entry->Set(env->context(), env->uid_string(), uid).FromJust();
-  entry->Set(env->context(), env->gid_string(), gid).FromJust();
+  entry->Set(env->context(), env->uid_string(), uid).Check();
+  entry->Set(env->context(), env->gid_string(), gid).Check();
   entry->Set(env->context(),
              env->username_string(),
-             username.ToLocalChecked()).FromJust();
+             username.ToLocalChecked()).Check();
   entry->Set(env->context(),
              env->homedir_string(),
-             homedir.ToLocalChecked()).FromJust();
+             homedir.ToLocalChecked()).Check();
   entry->Set(env->context(),
              env->shell_string(),
-             shell.ToLocalChecked()).FromJust();
+             shell.ToLocalChecked()).Check();
 
   args.GetReturnValue().Set(entry);
 }
@@ -401,7 +400,7 @@ void Initialize(Local<Object> target,
   env->SetMethod(target, "getPriority", GetPriority);
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "isBigEndian"),
-              Boolean::New(env->isolate(), IsBigEndian())).FromJust();
+              Boolean::New(env->isolate(), IsBigEndian())).Check();
 }
 
 }  // namespace os

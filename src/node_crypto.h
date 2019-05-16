@@ -24,34 +24,17 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node.h"
 // ClientHelloParser
 #include "node_crypto_clienthello.h"
 
-#include "node_buffer.h"
-
 #include "env.h"
-#include "async_wrap-inl.h"
-#include "base_object-inl.h"
+#include "base_object.h"
+#include "util.h"
 
 #include "v8.h"
 
-#include <openssl/ssl.h>
-#include <openssl/ec.h>
-#include <openssl/ecdh.h>
-#ifndef OPENSSL_NO_ENGINE
-# include <openssl/engine.h>
-#endif  // !OPENSSL_NO_ENGINE
 #include <openssl/err.h>
-#include <openssl/evp.h>
-// TODO(shigeki) Remove this after upgrading to 1.1.1
-#include <openssl/obj_mac.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-#include <openssl/hmac.h>
-#include <openssl/rand.h>
-#include <openssl/pkcs12.h>
+#include <openssl/ssl.h>
 
 namespace node {
 namespace crypto {
@@ -147,6 +130,7 @@ class SecureContext : public BaseObject {
   static void AddCACert(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AddCRL(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void AddRootCerts(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetCipherSuites(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetCiphers(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetECDHCurve(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetDHParam(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -155,6 +139,10 @@ class SecureContext : public BaseObject {
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetSessionTimeout(
       const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetMinProto(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetMaxProto(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetMinProto(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetMaxProto(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Close(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void LoadPKCS12(const v8::FunctionCallbackInfo<v8::Value>& args);
 #ifndef OPENSSL_NO_ENGINE
@@ -268,6 +256,7 @@ class SSLWrap {
                                          int* copy);
 #endif
   static int NewSessionCallback(SSL* s, SSL_SESSION* sess);
+  static void KeylogCallback(const SSL* s, const char* line);
   static void OnClientHello(void* arg,
                             const ClientHelloParser::ClientHello& hello);
 
@@ -281,7 +270,7 @@ class SSLWrap {
   static void LoadSession(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void IsSessionReused(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void VerifyError(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static void GetCurrentCipher(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetCipher(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void EndParser(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void CertCbDone(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void Renegotiate(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -333,8 +322,8 @@ class SSLWrap {
 
   ClientHelloParser hello_parser_;
 
-  Persistent<v8::ArrayBufferView> ocsp_response_;
-  Persistent<v8::Value> sni_context_;
+  v8::Global<v8::ArrayBufferView> ocsp_response_;
+  v8::Global<v8::Value> sni_context_;
 
   friend class SecureContext;
 };
@@ -367,6 +356,9 @@ class ByteSource {
 
   static ByteSource FromSymmetricKeyObject(v8::Local<v8::Value> handle);
 
+  ByteSource(const ByteSource&) = delete;
+  ByteSource& operator=(const ByteSource&) = delete;
+
  private:
   const char* data_ = nullptr;
   char* allocated_data_ = nullptr;
@@ -376,8 +368,6 @@ class ByteSource {
 
   static ByteSource Allocated(char* data, size_t size);
   static ByteSource Foreign(const char* data, size_t size);
-
-  DISALLOW_COPY_AND_ASSIGN(ByteSource);
 };
 
 enum PKEncodingType {
@@ -420,20 +410,16 @@ enum KeyType {
 // use.
 class ManagedEVPPKey {
  public:
-  ManagedEVPPKey();
-  explicit ManagedEVPPKey(EVP_PKEY* pkey);
-  ManagedEVPPKey(const ManagedEVPPKey& key);
-  ManagedEVPPKey(ManagedEVPPKey&& key);
-  ~ManagedEVPPKey();
-
-  ManagedEVPPKey& operator=(const ManagedEVPPKey& key);
-  ManagedEVPPKey& operator=(ManagedEVPPKey&& key);
+  ManagedEVPPKey() = default;
+  explicit ManagedEVPPKey(EVPKeyPointer&& pkey);
+  ManagedEVPPKey(const ManagedEVPPKey& that);
+  ManagedEVPPKey& operator=(const ManagedEVPPKey& that);
 
   operator bool() const;
   EVP_PKEY* get() const;
 
  private:
-  EVP_PKEY* pkey_;
+  EVPKeyPointer pkey_;
 };
 
 class KeyObject : public BaseObject {
@@ -456,7 +442,6 @@ class KeyObject : public BaseObject {
   // only be used to implement cryptograohic operations requiring the key.
   ManagedEVPPKey GetAsymmetricKey() const;
   const char* GetSymmetricKey() const;
-  size_t GetAsymmetricKeySize() const;
   size_t GetSymmetricKeySize() const;
 
  protected:
@@ -469,10 +454,7 @@ class KeyObject : public BaseObject {
 
   static void GetAsymmetricKeyType(
       const v8::FunctionCallbackInfo<v8::Value>& args);
-  v8::Local<v8::String> GetAsymmetricKeyType() const;
-
-  static void GetAsymmetricKeySize(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
+  v8::Local<v8::Value> GetAsymmetricKeyType() const;
 
   static void GetSymmetricKeySize(
       const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -689,7 +671,7 @@ class Sign : public SignBase {
   SignResult SignFinal(
       const ManagedEVPPKey& pkey,
       int padding,
-      int saltlen);
+      const v8::Maybe<int>& saltlen);
 
  protected:
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -710,7 +692,7 @@ class Verify : public SignBase {
                     const char* sig,
                     int siglen,
                     int padding,
-                    int saltlen,
+                    const v8::Maybe<int>& saltlen,
                     bool* verify_result);
 
  protected:

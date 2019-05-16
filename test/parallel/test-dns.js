@@ -81,7 +81,7 @@ assert(existing.length > 0);
         dns.setServers([serv]);
       },
       {
-        name: 'TypeError [ERR_INVALID_IP_ADDRESS]',
+        name: 'TypeError',
         code: 'ERR_INVALID_IP_ADDRESS'
       }
     );
@@ -121,13 +121,15 @@ const ports = [
   '4.4.4.4:53',
   '[2001:4860:4860::8888]:53',
   '103.238.225.181:666',
-  '[fe80::483a:5aff:fee6:1f04]:666'
+  '[fe80::483a:5aff:fee6:1f04]:666',
+  '[fe80::483a:5aff:fee6:1f04]',
 ];
 const portsExpected = [
   '4.4.4.4',
   '2001:4860:4860::8888',
   '103.238.225.181:666',
-  '[fe80::483a:5aff:fee6:1f04]:666'
+  '[fe80::483a:5aff:fee6:1f04]:666',
+  'fe80::483a:5aff:fee6:1f04',
 ];
 dns.setServers(ports);
 assert.deepStrictEqual(dns.getServers(), portsExpected);

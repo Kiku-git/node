@@ -27,17 +27,21 @@
 #include "aliased_buffer.h"
 #if HAVE_INSPECTOR
 #include "inspector_agent.h"
+#include "inspector_profiler.h"
 #endif
 #include "handle_wrap.h"
 #include "node.h"
 #include "node_binding.h"
 #include "node_http2_state.h"
+#include "node_main_instance.h"
 #include "node_options.h"
 #include "req_wrap.h"
 #include "util.h"
 #include "uv.h"
 #include "v8.h"
 
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <list>
@@ -65,6 +69,13 @@ namespace tracing {
 class AgentWriterHandle;
 }
 
+#if HAVE_INSPECTOR
+namespace profiler {
+class V8CoverageConnection;
+class V8CpuProfilerConnection;
+}  // namespace profiler
+#endif  // HAVE_INSPECTOR
+
 namespace worker {
 class Worker;
 }
@@ -76,11 +87,13 @@ struct PackageConfig {
   enum class Exists { Yes, No };
   enum class IsValid { Yes, No };
   enum class HasMain { Yes, No };
+  enum PackageType : uint32_t { None = 0, CommonJS, Module };
 
-  Exists exists;
-  IsValid is_valid;
-  HasMain has_main;
-  std::string main;
+  const Exists exists;
+  const IsValid is_valid;
+  const HasMain has_main;
+  const std::string main;
+  const PackageType type;
 };
 }  // namespace loader
 
@@ -140,11 +153,17 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(channel_string, "channel")                                                 \
   V(chunks_sent_since_last_write_string, "chunksSentSinceLastWrite")           \
   V(code_string, "code")                                                       \
+  V(commonjs_string, "commonjs")                                               \
   V(config_string, "config")                                                   \
   V(constants_string, "constants")                                             \
   V(crypto_dsa_string, "dsa")                                                  \
   V(crypto_ec_string, "ec")                                                    \
+  V(crypto_ed25519_string, "ed25519")                                          \
+  V(crypto_ed448_string, "ed448")                                              \
+  V(crypto_x25519_string, "x25519")                                            \
+  V(crypto_x448_string, "x448")                                                \
   V(crypto_rsa_string, "rsa")                                                  \
+  V(crypto_rsa_pss_string, "rsa-pss")                                          \
   V(cwd_string, "cwd")                                                         \
   V(data_string, "data")                                                       \
   V(dest_string, "dest")                                                       \
@@ -188,11 +207,13 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(get_data_clone_error_string, "_getDataCloneError")                         \
   V(get_shared_array_buffer_id_string, "_getSharedArrayBufferId")              \
   V(gid_string, "gid")                                                         \
+  V(h2_string, "h2")                                                           \
   V(handle_string, "handle")                                                   \
   V(help_text_string, "helpText")                                              \
   V(homedir_string, "homedir")                                                 \
   V(host_string, "host")                                                       \
   V(hostmaster_string, "hostmaster")                                           \
+  V(http_1_1_string, "http/1.1")                                               \
   V(ignore_string, "ignore")                                                   \
   V(infoaccess_string, "infoAccess")                                           \
   V(inherit_string, "inherit")                                                 \
@@ -231,10 +252,10 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(onexit_string, "onexit")                                                   \
   V(onhandshakedone_string, "onhandshakedone")                                 \
   V(onhandshakestart_string, "onhandshakestart")                               \
+  V(onkeylog_string, "onkeylog")                                               \
   V(onmessage_string, "onmessage")                                             \
   V(onnewsession_string, "onnewsession")                                       \
   V(onocspresponse_string, "onocspresponse")                                   \
-  V(onread_string, "onread")                                                   \
   V(onreadstart_string, "onreadstart")                                         \
   V(onreadstop_string, "onreadstop")                                           \
   V(onshutdown_string, "onshutdown")                                           \
@@ -320,32 +341,47 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(x_forwarded_string, "x-forwarded-for")                                     \
   V(zero_return_string, "ZERO_RETURN")
 
-#define ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)                            \
-  V(as_callback_data, v8::Object)                                              \
+#define ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)                             \
   V(as_callback_data_template, v8::FunctionTemplate)                           \
+  V(async_wrap_ctor_template, v8::FunctionTemplate)                            \
+  V(async_wrap_object_ctor_template, v8::FunctionTemplate)                     \
+  V(fd_constructor_template, v8::ObjectTemplate)                               \
+  V(fdclose_constructor_template, v8::ObjectTemplate)                          \
+  V(filehandlereadwrap_template, v8::ObjectTemplate)                           \
+  V(fsreqpromise_constructor_template, v8::ObjectTemplate)                     \
+  V(handle_wrap_ctor_template, v8::FunctionTemplate)                           \
+  V(http2settings_constructor_template, v8::ObjectTemplate)                    \
+  V(http2stream_constructor_template, v8::ObjectTemplate)                      \
+  V(http2ping_constructor_template, v8::ObjectTemplate)                        \
+  V(libuv_stream_wrap_ctor_template, v8::FunctionTemplate)                     \
+  V(message_event_object_template, v8::ObjectTemplate)                         \
+  V(message_port_constructor_template, v8::FunctionTemplate)                   \
+  V(pipe_constructor_template, v8::FunctionTemplate)                           \
+  V(promise_wrap_template, v8::ObjectTemplate)                                 \
+  V(sab_lifetimepartner_constructor_template, v8::FunctionTemplate)            \
+  V(script_context_constructor_template, v8::FunctionTemplate)                 \
+  V(secure_context_constructor_template, v8::FunctionTemplate)                 \
+  V(shutdown_wrap_template, v8::ObjectTemplate)                                \
+  V(streambaseoutputstream_constructor_template, v8::ObjectTemplate)           \
+  V(tcp_constructor_template, v8::FunctionTemplate)                            \
+  V(tty_constructor_template, v8::FunctionTemplate)                            \
+  V(write_wrap_template, v8::ObjectTemplate)
+
+#define ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)                                \
+  V(as_callback_data, v8::Object)                                              \
   V(async_hooks_after_function, v8::Function)                                  \
   V(async_hooks_before_function, v8::Function)                                 \
   V(async_hooks_binding, v8::Object)                                           \
   V(async_hooks_destroy_function, v8::Function)                                \
   V(async_hooks_init_function, v8::Function)                                   \
   V(async_hooks_promise_resolve_function, v8::Function)                        \
-  V(async_wrap_ctor_template, v8::FunctionTemplate)                            \
-  V(async_wrap_object_ctor_template, v8::FunctionTemplate)                     \
   V(buffer_prototype_object, v8::Object)                                       \
-  V(coverage_connection, v8::Object)                                           \
-  V(context, v8::Context)                                                      \
   V(crypto_key_object_constructor, v8::Function)                               \
   V(domain_callback, v8::Function)                                             \
   V(domexception_function, v8::Function)                                       \
-  V(fd_constructor_template, v8::ObjectTemplate)                               \
-  V(fdclose_constructor_template, v8::ObjectTemplate)                          \
-  V(filehandlereadwrap_template, v8::ObjectTemplate)                           \
   V(fs_use_promises_symbol, v8::Symbol)                                        \
-  V(fsreqpromise_constructor_template, v8::ObjectTemplate)                     \
-  V(handle_wrap_ctor_template, v8::FunctionTemplate)                           \
   V(host_import_module_dynamically_callback, v8::Function)                     \
   V(host_initialize_import_meta_object_callback, v8::Function)                 \
-  V(http2ping_constructor_template, v8::ObjectTemplate)                        \
   V(http2session_on_altsvc_function, v8::Function)                             \
   V(http2session_on_error_function, v8::Function)                              \
   V(http2session_on_frame_error_function, v8::Function)                        \
@@ -358,48 +394,38 @@ constexpr size_t kFsStatsBufferLength = kFsStatsFieldsNumber * 2;
   V(http2session_on_settings_function, v8::Function)                           \
   V(http2session_on_stream_close_function, v8::Function)                       \
   V(http2session_on_stream_trailers_function, v8::Function)                    \
-  V(http2settings_constructor_template, v8::ObjectTemplate)                    \
-  V(http2stream_constructor_template, v8::ObjectTemplate)                      \
   V(internal_binding_loader, v8::Function)                                     \
   V(immediate_callback_function, v8::Function)                                 \
   V(inspector_console_extension_installer, v8::Function)                       \
-  V(libuv_stream_wrap_ctor_template, v8::FunctionTemplate)                     \
   V(message_port, v8::Object)                                                  \
-  V(message_event_object_template, v8::ObjectTemplate)                         \
-  V(message_port_constructor_template, v8::FunctionTemplate)                   \
   V(native_module_require, v8::Function)                                       \
-  V(on_coverage_message_function, v8::Function)                                \
   V(performance_entry_callback, v8::Function)                                  \
   V(performance_entry_template, v8::Function)                                  \
-  V(pipe_constructor_template, v8::FunctionTemplate)                           \
   V(process_object, v8::Object)                                                \
   V(primordials, v8::Object)                                                   \
   V(promise_reject_callback, v8::Function)                                     \
-  V(promise_wrap_template, v8::ObjectTemplate)                                 \
-  V(sab_lifetimepartner_constructor_template, v8::FunctionTemplate)            \
-  V(script_context_constructor_template, v8::FunctionTemplate)                 \
   V(script_data_constructor_function, v8::Function)                            \
-  V(secure_context_constructor_template, v8::FunctionTemplate)                 \
-  V(shutdown_wrap_template, v8::ObjectTemplate)                                \
-  V(tcp_constructor_template, v8::FunctionTemplate)                            \
   V(tick_callback_function, v8::Function)                                      \
   V(timers_callback_function, v8::Function)                                    \
   V(tls_wrap_constructor_function, v8::Function)                               \
   V(trace_category_state_function, v8::Function)                               \
-  V(tty_constructor_template, v8::FunctionTemplate)                            \
   V(udp_constructor_function, v8::Function)                                    \
-  V(url_constructor_function, v8::Function)                                    \
-  V(write_wrap_template, v8::ObjectTemplate)
+  V(url_constructor_function, v8::Function)
 
 class Environment;
 
-class IsolateData {
+class IsolateData : public MemoryRetainer {
  public:
   IsolateData(v8::Isolate* isolate,
               uv_loop_t* event_loop,
               MultiIsolatePlatform* platform = nullptr,
-              ArrayBufferAllocator* node_allocator = nullptr);
-  ~IsolateData();
+              ArrayBufferAllocator* node_allocator = nullptr,
+              const std::vector<size_t>* indexes = nullptr);
+  SET_MEMORY_INFO_NAME(IsolateData)
+  SET_SELF_SIZE(IsolateData)
+  void MemoryInfo(MemoryTracker* tracker) const override;
+  std::vector<size_t> Serialize(v8::SnapshotCreator* creator);
+
   inline uv_loop_t* event_loop() const;
   inline MultiIsolatePlatform* platform() const;
   inline std::shared_ptr<PerIsolateOptions> options();
@@ -407,7 +433,7 @@ class IsolateData {
 
   inline bool uses_node_allocator() const;
   inline v8::ArrayBuffer::Allocator* allocator() const;
-  inline ArrayBufferAllocator* node_allocator() const;
+  inline NodeArrayBufferAllocator* node_allocator() const;
 
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
@@ -424,8 +450,13 @@ class IsolateData {
 
   std::unordered_map<nghttp2_rcbuf*, v8::Eternal<v8::String>> http2_static_strs;
   inline v8::Isolate* isolate() const;
+  IsolateData(const IsolateData&) = delete;
+  IsolateData& operator=(const IsolateData&) = delete;
 
  private:
+  void DeserializeProperties(const std::vector<size_t>* indexes);
+  void CreateProperties();
+
 #define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
 #define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
 #define VS(PropertyName, StringValue) V(v8::String, PropertyName)
@@ -442,12 +473,10 @@ class IsolateData {
   v8::Isolate* const isolate_;
   uv_loop_t* const event_loop_;
   v8::ArrayBuffer::Allocator* const allocator_;
-  ArrayBufferAllocator* const node_allocator_;
+  NodeArrayBufferAllocator* const node_allocator_;
   const bool uses_node_allocator_;
   MultiIsolatePlatform* platform_;
   std::shared_ptr<PerIsolateOptions> options_;
-
-  DISALLOW_COPY_AND_ASSIGN(IsolateData);
 };
 
 struct ContextInfo {
@@ -468,7 +497,7 @@ struct CompileFnEntry {
 #define DEBUG_CATEGORY_NAMES(V)                                                \
   NODE_ASYNC_PROVIDER_TYPES(V)                                                 \
   V(INSPECTOR_SERVER)                                                          \
-  V(COVERAGE)
+  V(INSPECTOR_PROFILER)
 
 enum class DebugCategory {
 #define V(name) name,
@@ -509,144 +538,264 @@ struct AllocatedBuffer {
   friend class Environment;
 };
 
-class Environment {
+class AsyncRequest : public MemoryRetainer {
  public:
-  class AsyncHooks {
-   public:
-    // Reason for both UidFields and Fields are that one is stored as a double*
-    // and the other as a uint32_t*.
-    enum Fields {
-      kInit,
-      kBefore,
-      kAfter,
-      kDestroy,
-      kPromiseResolve,
-      kTotals,
-      kCheck,
-      kStackLength,
-      kFieldsCount,
-    };
-
-    enum UidFields {
-      kExecutionAsyncId,
-      kTriggerAsyncId,
-      kAsyncIdCounter,
-      kDefaultTriggerAsyncId,
-      kUidFieldsCount,
-    };
-
-    inline AliasedBuffer<uint32_t, v8::Uint32Array>& fields();
-    inline AliasedBuffer<double, v8::Float64Array>& async_id_fields();
-    inline AliasedBuffer<double, v8::Float64Array>& async_ids_stack();
-
-    inline v8::Local<v8::String> provider_string(int idx);
-
-    inline void no_force_checks();
-    inline Environment* env();
-
-    inline void push_async_ids(double async_id, double trigger_async_id);
-    inline bool pop_async_id(double async_id);
-    inline void clear_async_id_stack();  // Used in fatal exceptions.
-
-    // Used to set the kDefaultTriggerAsyncId in a scope. This is instead of
-    // passing the trigger_async_id along with other constructor arguments.
-    class DefaultTriggerAsyncIdScope {
-     public:
-      DefaultTriggerAsyncIdScope() = delete;
-      explicit DefaultTriggerAsyncIdScope(Environment* env,
-                                          double init_trigger_async_id);
-      explicit DefaultTriggerAsyncIdScope(AsyncWrap* async_wrap);
-      ~DefaultTriggerAsyncIdScope();
-
-     private:
-      AsyncHooks* async_hooks_;
-      double old_default_trigger_async_id_;
-
-      DISALLOW_COPY_AND_ASSIGN(DefaultTriggerAsyncIdScope);
-    };
+  AsyncRequest() = default;
+  ~AsyncRequest();
+  void Install(Environment* env, void* data, uv_async_cb target);
+  void Uninstall();
+  void Stop();
+  inline void set_stopped(bool flag);
+  inline bool is_stopped() const;
+  uv_async_t* GetHandle();
+  void MemoryInfo(MemoryTracker* tracker) const override;
 
 
-   private:
-    friend class Environment;  // So we can call the constructor.
-    inline AsyncHooks();
-    // Keep a list of all Persistent strings used for Provider types.
-    v8::Eternal<v8::String> providers_[AsyncWrap::PROVIDERS_LENGTH];
-    // Stores the ids of the current execution context stack.
-    AliasedBuffer<double, v8::Float64Array> async_ids_stack_;
-    // Attached to a Uint32Array that tracks the number of active hooks for
-    // each type.
-    AliasedBuffer<uint32_t, v8::Uint32Array> fields_;
-    // Attached to a Float64Array that tracks the state of async resources.
-    AliasedBuffer<double, v8::Float64Array> async_id_fields_;
+  SET_MEMORY_INFO_NAME(AsyncRequest)
+  SET_SELF_SIZE(AsyncRequest)
 
-    void grow_async_ids_stack();
+ private:
+  Environment* env_;
+  uv_async_t* async_ = nullptr;
+  std::atomic_bool stopped_ {true};
+};
 
-    DISALLOW_COPY_AND_ASSIGN(AsyncHooks);
+class KVStore {
+ public:
+  virtual v8::Local<v8::String> Get(v8::Isolate* isolate,
+                                    v8::Local<v8::String> key) const = 0;
+  virtual void Set(v8::Isolate* isolate,
+                   v8::Local<v8::String> key,
+                   v8::Local<v8::String> value) = 0;
+  virtual int32_t Query(v8::Isolate* isolate,
+                        v8::Local<v8::String> key) const = 0;
+  virtual void Delete(v8::Isolate* isolate, v8::Local<v8::String> key) = 0;
+  virtual v8::Local<v8::Array> Enumerate(v8::Isolate* isolate) const = 0;
+
+  virtual std::shared_ptr<KVStore> Clone(v8::Isolate* isolate) const;
+  virtual v8::Maybe<bool> AssignFromObject(v8::Local<v8::Context> context,
+                                           v8::Local<v8::Object> entries);
+
+  static std::shared_ptr<KVStore> CreateMapKVStore();
+};
+
+namespace per_process {
+extern std::shared_ptr<KVStore> system_environment;
+}
+
+class AsyncHooks : public MemoryRetainer {
+ public:
+  SET_MEMORY_INFO_NAME(AsyncHooks)
+  SET_SELF_SIZE(AsyncHooks)
+  void MemoryInfo(MemoryTracker* tracker) const override;
+
+  // Reason for both UidFields and Fields are that one is stored as a double*
+  // and the other as a uint32_t*.
+  enum Fields {
+    kInit,
+    kBefore,
+    kAfter,
+    kDestroy,
+    kPromiseResolve,
+    kTotals,
+    kCheck,
+    kStackLength,
+    kFieldsCount,
   };
 
-  class AsyncCallbackScope {
-   public:
-    AsyncCallbackScope() = delete;
-    explicit AsyncCallbackScope(Environment* env);
-    ~AsyncCallbackScope();
-
-   private:
-    Environment* env_;
-
-    DISALLOW_COPY_AND_ASSIGN(AsyncCallbackScope);
+  enum UidFields {
+    kExecutionAsyncId,
+    kTriggerAsyncId,
+    kAsyncIdCounter,
+    kDefaultTriggerAsyncId,
+    kUidFieldsCount,
   };
 
-  inline size_t makecallback_depth() const;
+  inline AliasedUint32Array& fields();
+  inline AliasedFloat64Array& async_id_fields();
+  inline AliasedFloat64Array& async_ids_stack();
 
-  class ImmediateInfo {
+  inline v8::Local<v8::String> provider_string(int idx);
+
+  inline void no_force_checks();
+  inline Environment* env();
+
+  inline void push_async_ids(double async_id, double trigger_async_id);
+  inline bool pop_async_id(double async_id);
+  inline void clear_async_id_stack();  // Used in fatal exceptions.
+
+  AsyncHooks(const AsyncHooks&) = delete;
+  AsyncHooks& operator=(const AsyncHooks&) = delete;
+
+  // Used to set the kDefaultTriggerAsyncId in a scope. This is instead of
+  // passing the trigger_async_id along with other constructor arguments.
+  class DefaultTriggerAsyncIdScope {
    public:
-    inline AliasedBuffer<uint32_t, v8::Uint32Array>& fields();
-    inline uint32_t count() const;
-    inline uint32_t ref_count() const;
-    inline bool has_outstanding() const;
+    DefaultTriggerAsyncIdScope() = delete;
+    explicit DefaultTriggerAsyncIdScope(Environment* env,
+                                        double init_trigger_async_id);
+    explicit DefaultTriggerAsyncIdScope(AsyncWrap* async_wrap);
+    ~DefaultTriggerAsyncIdScope();
 
-    inline void count_inc(uint32_t increment);
-    inline void count_dec(uint32_t decrement);
-
-    inline void ref_count_inc(uint32_t increment);
-    inline void ref_count_dec(uint32_t decrement);
+    DefaultTriggerAsyncIdScope(const DefaultTriggerAsyncIdScope&) = delete;
+    DefaultTriggerAsyncIdScope& operator=(const DefaultTriggerAsyncIdScope&) =
+        delete;
 
    private:
-    friend class Environment;  // So we can call the constructor.
-    inline explicit ImmediateInfo(v8::Isolate* isolate);
-
-    enum Fields {
-      kCount,
-      kRefCount,
-      kHasOutstanding,
-      kFieldsCount
-    };
-
-    AliasedBuffer<uint32_t, v8::Uint32Array> fields_;
-
-    DISALLOW_COPY_AND_ASSIGN(ImmediateInfo);
+    AsyncHooks* async_hooks_;
+    double old_default_trigger_async_id_;
   };
 
-  class TickInfo {
-   public:
-    inline AliasedBuffer<uint8_t, v8::Uint8Array>& fields();
-    inline bool has_tick_scheduled() const;
-    inline bool has_rejection_to_warn() const;
+ private:
+  friend class Environment;  // So we can call the constructor.
+  inline AsyncHooks();
+  // Keep a list of all Persistent strings used for Provider types.
+  std::array<v8::Eternal<v8::String>, AsyncWrap::PROVIDERS_LENGTH> providers_;
+  // Stores the ids of the current execution context stack.
+  AliasedFloat64Array async_ids_stack_;
+  // Attached to a Uint32Array that tracks the number of active hooks for
+  // each type.
+  AliasedUint32Array fields_;
+  // Attached to a Float64Array that tracks the state of async resources.
+  AliasedFloat64Array async_id_fields_;
 
-   private:
-    friend class Environment;  // So we can call the constructor.
-    inline explicit TickInfo(v8::Isolate* isolate);
+  void grow_async_ids_stack();
+};
 
-    enum Fields {
-      kHasTickScheduled = 0,
-      kHasRejectionToWarn,
-      kFieldsCount
-    };
+class AsyncCallbackScope {
+ public:
+  AsyncCallbackScope() = delete;
+  explicit AsyncCallbackScope(Environment* env);
+  ~AsyncCallbackScope();
+  AsyncCallbackScope(const AsyncCallbackScope&) = delete;
+  AsyncCallbackScope& operator=(const AsyncCallbackScope&) = delete;
 
-    AliasedBuffer<uint8_t, v8::Uint8Array> fields_;
+ private:
+  Environment* env_;
+};
 
-    DISALLOW_COPY_AND_ASSIGN(TickInfo);
+class ImmediateInfo : public MemoryRetainer {
+ public:
+  inline AliasedUint32Array& fields();
+  inline uint32_t count() const;
+  inline uint32_t ref_count() const;
+  inline bool has_outstanding() const;
+  inline void count_inc(uint32_t increment);
+  inline void count_dec(uint32_t decrement);
+  inline void ref_count_inc(uint32_t increment);
+  inline void ref_count_dec(uint32_t decrement);
+
+  ImmediateInfo(const ImmediateInfo&) = delete;
+  ImmediateInfo& operator=(const ImmediateInfo&) = delete;
+
+  SET_MEMORY_INFO_NAME(ImmediateInfo)
+  SET_SELF_SIZE(ImmediateInfo)
+  void MemoryInfo(MemoryTracker* tracker) const override;
+
+ private:
+  friend class Environment;  // So we can call the constructor.
+  inline explicit ImmediateInfo(v8::Isolate* isolate);
+
+  enum Fields { kCount, kRefCount, kHasOutstanding, kFieldsCount };
+
+  AliasedUint32Array fields_;
+};
+
+class TickInfo : public MemoryRetainer {
+ public:
+  inline AliasedUint8Array& fields();
+  inline bool has_tick_scheduled() const;
+  inline bool has_rejection_to_warn() const;
+
+  SET_MEMORY_INFO_NAME(TickInfo)
+  SET_SELF_SIZE(TickInfo)
+  void MemoryInfo(MemoryTracker* tracker) const override;
+
+  TickInfo(const TickInfo&) = delete;
+  TickInfo& operator=(const TickInfo&) = delete;
+
+ private:
+  friend class Environment;  // So we can call the constructor.
+  inline explicit TickInfo(v8::Isolate* isolate);
+
+  enum Fields { kHasTickScheduled = 0, kHasRejectionToWarn, kFieldsCount };
+
+  AliasedUint8Array fields_;
+};
+
+class TrackingTraceStateObserver :
+    public v8::TracingController::TraceStateObserver {
+ public:
+  explicit TrackingTraceStateObserver(Environment* env) : env_(env) {}
+
+  void OnTraceEnabled() override {
+    UpdateTraceCategoryState();
+  }
+
+  void OnTraceDisabled() override {
+    UpdateTraceCategoryState();
+  }
+
+ private:
+  void UpdateTraceCategoryState();
+
+  Environment* env_;
+};
+
+class ShouldNotAbortOnUncaughtScope {
+ public:
+  explicit inline ShouldNotAbortOnUncaughtScope(Environment* env);
+  inline void Close();
+  inline ~ShouldNotAbortOnUncaughtScope();
+
+ private:
+  Environment* env_;
+};
+
+class CleanupHookCallback {
+ public:
+  CleanupHookCallback(void (*fn)(void*),
+                      void* arg,
+                      uint64_t insertion_order_counter)
+      : fn_(fn), arg_(arg), insertion_order_counter_(insertion_order_counter) {}
+
+  // Only hashes `arg_`, since that is usually enough to identify the hook.
+  struct Hash {
+    inline size_t operator()(const CleanupHookCallback& cb) const;
   };
+
+  // Compares by `fn_` and `arg_` being equal.
+  struct Equal {
+    inline bool operator()(const CleanupHookCallback& a,
+                           const CleanupHookCallback& b) const;
+  };
+
+  inline BaseObject* GetBaseObject() const;
+
+ private:
+  friend class Environment;
+  void (*fn_)(void*);
+  void* arg_;
+
+  // We keep track of the insertion order for these objects, so that we can
+  // call the callbacks in reverse order when we are cleaning up.
+  uint64_t insertion_order_counter_;
+};
+
+class Environment : public MemoryRetainer {
+ public:
+  Environment(const Environment&) = delete;
+  Environment& operator=(const Environment&) = delete;
+
+  SET_MEMORY_INFO_NAME(Environment)
+
+  inline size_t SelfSize() const override;
+  bool IsRootNode() const override { return true; }
+  void MemoryInfo(MemoryTracker* tracker) const override;
+
+  inline size_t async_callback_scope_depth() const;
+  inline void PushAsyncCallbackScope();
+  inline void PopAsyncCallbackScope();
 
   enum Flags {
     kNoFlags = 0,
@@ -675,11 +824,12 @@ class Environment {
               uint64_t thread_id = kNoThreadId);
   ~Environment();
 
-  void Start(bool start_profiler_idle_notifier);
+  void InitializeLibuv(bool start_profiler_idle_notifier);
   v8::MaybeLocal<v8::Object> ProcessCliArgs(
       const std::vector<std::string>& args,
       const std::vector<std::string>& exec_args);
   inline const std::vector<std::string>& exec_argv();
+  inline const std::vector<std::string>& argv();
 
   typedef void (*HandleCleanupCb)(Environment* env,
                                   uv_handle_t* handle,
@@ -693,6 +843,7 @@ class Environment {
   void RegisterHandleCleanups();
   void CleanupHandles();
   void Exit(int code);
+  void ExitEnv();
 
   // Register clean-up cb to be called on environment destruction.
   inline void RegisterHandleCleanup(uv_handle_t* handle,
@@ -730,10 +881,12 @@ class Environment {
   inline ImmediateInfo* immediate_info();
   inline TickInfo* tick_info();
   inline uint64_t timer_base() const;
+  inline std::shared_ptr<KVStore> env_vars();
+  inline void set_env_vars(std::shared_ptr<KVStore> env_vars);
 
   inline IsolateData* isolate_data() const;
 
-  // Utilites that allocate memory using the Isolate's ArrayBuffer::Allocator.
+  // Utilities that allocate memory using the Isolate's ArrayBuffer::Allocator.
   // In particular, using AllocateManaged() will provide a RAII-style object
   // with easy conversion to `Buffer` and `ArrayBuffer` objects.
   inline AllocatedBuffer AllocateManaged(size_t size, bool checked = true);
@@ -755,10 +908,9 @@ class Environment {
   // This is a pseudo-boolean that keeps track of whether an uncaught exception
   // should abort the process or not if --abort-on-uncaught-exception was
   // passed to Node. If the flag was not passed, it is ignored.
-  inline AliasedBuffer<uint32_t, v8::Uint32Array>&
-  should_abort_on_uncaught_toggle();
+  inline AliasedUint32Array& should_abort_on_uncaught_toggle();
 
-  inline AliasedBuffer<int32_t, v8::Int32Array>& stream_base_state();
+  inline AliasedInt32Array& stream_base_state();
 
   // The necessary API for async_hooks.
   inline double new_async_id();
@@ -777,7 +929,7 @@ class Environment {
   std::unordered_map<uint32_t, contextify::ContextifyScript*>
       id_to_script_map;
   std::unordered_set<CompileFnEntry*> compile_fn_entries;
-  std::unordered_map<uint32_t, Persistent<v8::Function>> id_to_function_map;
+  std::unordered_map<uint32_t, v8::Global<v8::Function>> id_to_function_map;
 
   inline uint32_t get_next_module_id();
   inline uint32_t get_next_script_id();
@@ -804,9 +956,8 @@ class Environment {
   inline void set_debug_enabled(DebugCategory category, bool enabled);
   void set_debug_categories(const std::string& cats, bool enabled);
 
-  inline AliasedBuffer<double, v8::Float64Array>* fs_stats_field_array();
-  inline AliasedBuffer<uint64_t, v8::BigUint64Array>*
-      fs_stats_field_bigint_array();
+  inline AliasedFloat64Array* fs_stats_field_array();
+  inline AliasedBigUint64Array* fs_stats_field_bigint_array();
 
   inline std::vector<std::unique_ptr<fs::FileHandleReadWrap>>&
       file_handle_read_wrap_freelist();
@@ -830,6 +981,9 @@ class Environment {
   inline bool has_run_bootstrapping_code() const;
   inline void set_has_run_bootstrapping_code(bool has_run_bootstrapping_code);
 
+  inline bool has_serialized_options() const;
+  inline void set_has_serialized_options(bool has_serialized_options);
+
   static uint64_t AllocateThreadId();
   static constexpr uint64_t kNoThreadId = -1;
 
@@ -842,7 +996,7 @@ class Environment {
   inline void add_sub_worker_context(worker::Worker* context);
   inline void remove_sub_worker_context(worker::Worker* context);
   void stop_sub_worker_contexts();
-  inline bool is_stopping_worker() const;
+  inline bool is_stopping() const;
 
   inline void ThrowError(const char* errmsg);
   inline void ThrowTypeError(const char* errmsg);
@@ -874,9 +1028,6 @@ class Environment {
   inline void SetProtoMethod(v8::Local<v8::FunctionTemplate> that,
                              const char* name,
                              v8::FunctionCallback callback);
-  inline void SetTemplateMethod(v8::Local<v8::FunctionTemplate> that,
-                                const char* name,
-                                v8::FunctionCallback callback);
 
   // Safe variants denote the function has no side effects.
   inline void SetMethodNoSideEffect(v8::Local<v8::Object> that,
@@ -885,10 +1036,6 @@ class Environment {
   inline void SetProtoMethodNoSideEffect(v8::Local<v8::FunctionTemplate> that,
                                          const char* name,
                                          v8::FunctionCallback callback);
-  inline void SetTemplateMethodNoSideEffect(
-      v8::Local<v8::FunctionTemplate> that,
-      const char* name,
-      v8::FunctionCallback callback);
 
   void BeforeExit(void (*cb)(void* arg), void* arg);
   void RunBeforeExitCallbacks();
@@ -913,8 +1060,11 @@ class Environment {
 #define V(PropertyName, TypeName)                                             \
   inline v8::Local<TypeName> PropertyName() const;                            \
   inline void set_ ## PropertyName(v8::Local<TypeName> value);
-  ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
 #undef V
+
+  inline v8::Local<v8::Context> context() const;
 
 #if HAVE_INSPECTOR
   inline inspector::Agent* inspector_agent() const {
@@ -931,8 +1081,6 @@ class Environment {
   inline HandleWrapQueue* handle_wrap_queue() { return &handle_wrap_queue_; }
   inline ReqWrapQueue* req_wrap_queue() { return &req_wrap_queue_; }
 
-  void AddPromiseHook(promise_hook_func fn, void* arg);
-  bool RemovePromiseHook(promise_hook_func fn, void* arg);
   inline bool EmitProcessEnvWarning() {
     bool current_value = emit_env_nonstring_warning_;
     emit_env_nonstring_warning_ = false;
@@ -958,35 +1106,8 @@ class Environment {
   // This needs to be available for the JS-land setImmediate().
   void ToggleImmediateRef(bool ref);
 
-  class TrackingTraceStateObserver :
-      public v8::TracingController::TraceStateObserver {
-   public:
-    explicit TrackingTraceStateObserver(Environment* env) : env_(env) {}
-
-    void OnTraceEnabled() override {
-      UpdateTraceCategoryState();
-    }
-
-    void OnTraceDisabled() override {
-      UpdateTraceCategoryState();
-    }
-
-   private:
-    void UpdateTraceCategoryState();
-
-    Environment* env_;
-  };
-
-  class ShouldNotAbortOnUncaughtScope {
-   public:
-    explicit inline ShouldNotAbortOnUncaughtScope(Environment* env);
-    inline void Close();
-    inline ~ShouldNotAbortOnUncaughtScope();
-
-   private:
-    Environment* env_;
-  };
-
+  inline void PushShouldNotAbortOnUncaughtScope();
+  inline void PopShouldNotAbortOnUncaughtScope();
   inline bool inside_should_not_abort_on_uncaught_scope() const;
 
   static inline Environment* ForAsyncHooks(AsyncHooks* hooks);
@@ -1006,23 +1127,29 @@ class Environment {
   inline std::shared_ptr<EnvironmentOptions> options();
   inline std::shared_ptr<HostPort> inspector_host_port();
 
-  enum class ExecutionMode {
-    kDefault,
-    kInspect,              // node inspect
-    kDebug,                // node debug
-    kPrintHelp,            // node --help
-    kPrintBashCompletion,  // node --completion-bash
-    kProfProcess,          // node --prof-process
-    kEvalString,           // node --eval without --interactive
-    kCheckSyntax,          // node --check (incompatible with --eval)
-    kRepl,
-    kEvalStdin,
-    kRunMainModule
-  };
+  inline AsyncRequest* thread_stopper() { return &thread_stopper_; }
 
-  inline ExecutionMode execution_mode() { return execution_mode_; }
+#if HAVE_INSPECTOR
+  void set_coverage_connection(
+      std::unique_ptr<profiler::V8CoverageConnection> connection);
+  profiler::V8CoverageConnection* coverage_connection();
 
-  inline void set_execution_mode(ExecutionMode mode) { execution_mode_ = mode; }
+  inline void set_coverage_directory(const char* directory);
+  inline const std::string& coverage_directory() const;
+
+  void set_cpu_profiler_connection(
+      std::unique_ptr<profiler::V8CpuProfilerConnection> connection);
+  profiler::V8CpuProfilerConnection* cpu_profiler_connection();
+
+  inline void set_cpu_prof_name(const std::string& name);
+  inline const std::string& cpu_prof_name() const;
+
+  inline void set_cpu_prof_interval(uint64_t interval);
+  inline uint64_t cpu_prof_interval() const;
+
+  inline void set_cpu_prof_dir(const std::string& dir);
+  inline const std::string& cpu_prof_dir() const;
+#endif  // HAVE_INSPECTOR
 
  private:
   inline void CreateImmediate(native_immediate_callback cb,
@@ -1033,7 +1160,6 @@ class Environment {
   inline void ThrowError(v8::Local<v8::Value> (*fun)(v8::Local<v8::String>),
                          const char* errmsg);
 
-  ExecutionMode execution_mode_ = ExecutionMode::kDefault;
   std::list<binding::DLib> loaded_addons_;
   v8::Isolate* const isolate_;
   IsolateData* const isolate_data_;
@@ -1048,12 +1174,21 @@ class Environment {
   ImmediateInfo immediate_info_;
   TickInfo tick_info_;
   const uint64_t timer_base_;
+  std::shared_ptr<KVStore> env_vars_;
   bool printed_error_ = false;
-  bool abort_on_uncaught_exception_ = false;
   bool emit_env_nonstring_warning_ = true;
   bool emit_err_name_warning_ = true;
-  size_t makecallback_cntr_ = 0;
+  size_t async_callback_scope_depth_ = 0;
   std::vector<double> destroy_async_id_list_;
+
+#if HAVE_INSPECTOR
+  std::unique_ptr<profiler::V8CoverageConnection> coverage_connection_;
+  std::unique_ptr<profiler::V8CpuProfilerConnection> cpu_profiler_connection_;
+  std::string coverage_directory_;
+  std::string cpu_prof_dir_;
+  std::string cpu_prof_name_;
+  uint64_t cpu_prof_interval_;
+#endif  // HAVE_INSPECTOR
 
   std::shared_ptr<EnvironmentOptions> options_;
   // options_ contains debug options parsed from CLI arguments,
@@ -1065,22 +1200,25 @@ class Environment {
   // used.
   std::shared_ptr<HostPort> inspector_host_port_;
   std::vector<std::string> exec_argv_;
+  std::vector<std::string> argv_;
 
   uint32_t module_id_counter_ = 0;
   uint32_t script_id_counter_ = 0;
   uint32_t function_id_counter_ = 0;
 
-  AliasedBuffer<uint32_t, v8::Uint32Array> should_abort_on_uncaught_toggle_;
+  AliasedUint32Array should_abort_on_uncaught_toggle_;
   int should_not_abort_scope_counter_ = 0;
 
   std::unique_ptr<TrackingTraceStateObserver> trace_state_observer_;
 
-  AliasedBuffer<int32_t, v8::Int32Array> stream_base_state_;
+  AliasedInt32Array stream_base_state_;
 
   std::unique_ptr<performance::performance_state> performance_state_;
   std::unordered_map<std::string, uint64_t> performance_marks_;
 
   bool has_run_bootstrapping_code_ = false;
+  bool has_serialized_options_ = false;
+
   bool can_call_into_js_ = true;
   Flags flags_;
   uint64_t thread_id_;
@@ -1116,8 +1254,8 @@ class Environment {
 
   bool debug_enabled_[static_cast<int>(DebugCategory::CATEGORY_COUNT)] = {0};
 
-  AliasedBuffer<double, v8::Float64Array> fs_stats_field_array_;
-  AliasedBuffer<uint64_t, v8::BigUint64Array> fs_stats_field_bigint_array_;
+  AliasedFloat64Array fs_stats_field_array_;
+  AliasedBigUint64Array fs_stats_field_bigint_array_;
 
   std::vector<std::unique_ptr<fs::FileHandleReadWrap>>
       file_handle_read_wrap_freelist_;
@@ -1134,13 +1272,6 @@ class Environment {
 
   std::list<ExitCallback> at_exit_functions_;
 
-  struct PromiseHookCallback {
-    promise_hook_func cb_;
-    void* arg_;
-    size_t enable_count_;
-  };
-  std::vector<PromiseHookCallback> promise_hooks_;
-
   struct NativeImmediateCallback {
     native_immediate_callback cb_;
     void* data_;
@@ -1151,28 +1282,6 @@ class Environment {
   void RunAndClearNativeImmediates();
   static void CheckImmediate(uv_check_t* handle);
 
-  struct CleanupHookCallback {
-    void (*fn_)(void*);
-    void* arg_;
-
-    // We keep track of the insertion order for these objects, so that we can
-    // call the callbacks in reverse order when we are cleaning up.
-    uint64_t insertion_order_counter_;
-
-    // Only hashes `arg_`, since that is usually enough to identify the hook.
-    struct Hash {
-      inline size_t operator()(const CleanupHookCallback& cb) const;
-    };
-
-    // Compares by `fn_` and `arg_` being equal.
-    struct Equal {
-      inline bool operator()(const CleanupHookCallback& a,
-                             const CleanupHookCallback& b) const;
-    };
-
-    inline BaseObject* GetBaseObject() const;
-  };
-
   // Use an unordered_set, so that we have efficient insertion and removal.
   std::unordered_set<CleanupHookCallback,
                      CleanupHookCallback::Hash,
@@ -1180,18 +1289,19 @@ class Environment {
   uint64_t cleanup_hook_counter_ = 0;
   bool started_cleanup_ = false;
 
-  static void EnvPromiseHook(v8::PromiseHookType type,
-                             v8::Local<v8::Promise> promise,
-                             v8::Local<v8::Value> parent);
+  // A custom async abstraction (a pair of async handle and a state variable)
+  // Used by embedders to shutdown running Node instance.
+  AsyncRequest thread_stopper_;
 
   template <typename T>
   void ForEachBaseObject(T&& iterator);
 
-#define V(PropertyName, TypeName) Persistent<TypeName> PropertyName ## _;
-  ENVIRONMENT_STRONG_PERSISTENT_PROPERTIES(V)
+#define V(PropertyName, TypeName) v8::Global<TypeName> PropertyName ## _;
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+  ENVIRONMENT_STRONG_PERSISTENT_TEMPLATES(V)
 #undef V
 
-  DISALLOW_COPY_AND_ASSIGN(Environment);
+  v8::Global<v8::Context> context_;
 };
 
 }  // namespace node

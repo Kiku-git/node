@@ -1,4 +1,5 @@
 #include "debug_utils.h"
+#include "util-inl.h"
 
 #ifdef __POSIX__
 #if defined(__linux__)
@@ -21,11 +22,6 @@
 #include <sys/mman.h>
 #include <cstdio>
 #endif
-
-#else  // __POSIX__
-
-#include <windows.h>
-#include <dbghelp.h>
 
 #endif  // __POSIX__
 

@@ -37,7 +37,7 @@ if (cluster.isWorker) {
   const servers = 2;
   const serverPorts = new Set();
 
-  // test a single TCP server
+  // Test a single TCP server
   const testConnection = (port, cb) => {
     const socket = net.connect(port, '127.0.0.1', () => {
       // buffer result
@@ -92,7 +92,7 @@ if (cluster.isWorker) {
       testCluster(common.mustCall(() => {
         // 3. disconnect cluster
         cluster.disconnect(common.mustCall(() => {
-          // run test again to confirm cleanup
+          // Run test again to confirm cleanup
           if (again) {
             test();
           }

@@ -1,3 +1,5 @@
+#include "env.h"
+
 #include "async_wrap.h"
 #include "node_buffer.h"
 #include "node_context_data.h"
@@ -6,17 +8,18 @@
 #include "node_internals.h"
 #include "node_native_module.h"
 #include "node_options-inl.h"
-#include "node_platform.h"
 #include "node_process.h"
 #include "node_v8_platform-inl.h"
 #include "node_worker.h"
 #include "tracing/agent.h"
 #include "tracing/traced_value.h"
+#include "util-inl.h"
 #include "v8-profiler.h"
 
-#include <cstdio>
 #include <algorithm>
 #include <atomic>
+#include <cstdio>
+#include <memory>
 
 namespace node {
 
@@ -31,14 +34,11 @@ using v8::HandleScope;
 using v8::Integer;
 using v8::Isolate;
 using v8::Local;
-using v8::Message;
 using v8::NewStringType;
 using v8::Number;
 using v8::Object;
 using v8::Private;
-using v8::Promise;
-using v8::PromiseHookType;
-using v8::StackFrame;
+using v8::SnapshotCreator;
 using v8::StackTrace;
 using v8::String;
 using v8::Symbol;
@@ -47,46 +47,61 @@ using v8::Undefined;
 using v8::Value;
 using worker::Worker;
 
-// TODO(@jasnell): Likely useful to move this to util or node_internal to
-// allow reuse. But since we're not reusing it yet...
-class TraceEventScope {
- public:
-  TraceEventScope(const char* category,
-                  const char* name,
-                  void* id) : category_(category), name_(name), id_(id) {
-    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(category_, name_, id_);
-  }
-  ~TraceEventScope() {
-    TRACE_EVENT_NESTABLE_ASYNC_END0(category_, name_, id_);
-  }
-
- private:
-  const char* category_;
-  const char* name_;
-  void* id_;
-};
-
 int const Environment::kNodeContextTag = 0x6e6f64;
 void* const Environment::kNodeContextTagPtr = const_cast<void*>(
     static_cast<const void*>(&Environment::kNodeContextTag));
 
-IsolateData::IsolateData(Isolate* isolate,
-                         uv_loop_t* event_loop,
-                         MultiIsolatePlatform* platform,
-                         ArrayBufferAllocator* node_allocator)
-    : isolate_(isolate),
-      event_loop_(event_loop),
-      allocator_(isolate->GetArrayBufferAllocator()),
-      node_allocator_(node_allocator),
-      uses_node_allocator_(allocator_ == node_allocator_),
-      platform_(platform) {
-  CHECK_NOT_NULL(allocator_);
-  if (platform_ != nullptr)
-    platform_->RegisterIsolate(isolate_, event_loop);
+std::vector<size_t> IsolateData::Serialize(SnapshotCreator* creator) {
+  Isolate* isolate = creator->GetIsolate();
+  std::vector<size_t> indexes;
+  HandleScope handle_scope(isolate);
+  // XXX(joyeecheung): technically speaking, the indexes here should be
+  // consecutive and we could just return a range instead of an array,
+  // but that's not part of the V8 API contract so we use an array
+  // just to be safe.
 
-  options_.reset(
-      new PerIsolateOptions(*(per_process::cli_options->per_isolate)));
+#define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
+#define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
+#define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define V(TypeName, PropertyName)                                              \
+  indexes.push_back(creator->AddData(PropertyName##_.Get(isolate)));
+  PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
+  PER_ISOLATE_SYMBOL_PROPERTIES(VY)
+  PER_ISOLATE_STRING_PROPERTIES(VS)
+#undef V
+#undef VY
+#undef VS
+#undef VP
 
+  return indexes;
+}
+
+void IsolateData::DeserializeProperties(const std::vector<size_t>* indexes) {
+  size_t i = 0;
+  HandleScope handle_scope(isolate_);
+
+#define VP(PropertyName, StringValue) V(v8::Private, PropertyName)
+#define VY(PropertyName, StringValue) V(v8::Symbol, PropertyName)
+#define VS(PropertyName, StringValue) V(v8::String, PropertyName)
+#define V(TypeName, PropertyName)                                              \
+  do {                                                                         \
+    MaybeLocal<TypeName> field =                                               \
+        isolate_->GetDataFromSnapshotOnce<TypeName>((*indexes)[i++]);          \
+    if (field.IsEmpty()) {                                                     \
+      fprintf(stderr, "Failed to deserialize " #PropertyName "\n");            \
+    }                                                                          \
+    PropertyName##_.Set(isolate_, field.ToLocalChecked());                     \
+  } while (0);
+  PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(VP)
+  PER_ISOLATE_SYMBOL_PROPERTIES(VY)
+  PER_ISOLATE_STRING_PROPERTIES(VS)
+#undef V
+#undef VY
+#undef VS
+#undef VP
+}
+
+void IsolateData::CreateProperties() {
   // Create string and private symbol properties as internalized one byte
   // strings after the platform is properly initialized.
   //
@@ -98,53 +113,96 @@ IsolateData::IsolateData(Isolate* isolate,
   // One byte because our strings are ASCII and we can safely skip V8's UTF-8
   // decoding step.
 
-#define V(PropertyName, StringValue)                                        \
-    PropertyName ## _.Set(                                                  \
-        isolate,                                                            \
-        Private::New(                                                       \
-            isolate,                                                        \
-            String::NewFromOneByte(                                         \
-                isolate,                                                    \
-                reinterpret_cast<const uint8_t*>(StringValue),              \
-                NewStringType::kInternalized,                               \
-                sizeof(StringValue) - 1).ToLocalChecked()));
+  HandleScope handle_scope(isolate_);
+
+#define V(PropertyName, StringValue)                                           \
+  PropertyName##_.Set(                                                         \
+      isolate_,                                                                \
+      Private::New(isolate_,                                                   \
+                   String::NewFromOneByte(                                     \
+                       isolate_,                                               \
+                       reinterpret_cast<const uint8_t*>(StringValue),          \
+                       NewStringType::kInternalized,                           \
+                       sizeof(StringValue) - 1)                                \
+                       .ToLocalChecked()));
   PER_ISOLATE_PRIVATE_SYMBOL_PROPERTIES(V)
 #undef V
-#define V(PropertyName, StringValue)                                        \
-    PropertyName ## _.Set(                                                  \
-        isolate,                                                            \
-        Symbol::New(                                                        \
-            isolate,                                                        \
-            String::NewFromOneByte(                                         \
-                isolate,                                                    \
-                reinterpret_cast<const uint8_t*>(StringValue),              \
-                NewStringType::kInternalized,                               \
-                sizeof(StringValue) - 1).ToLocalChecked()));
+#define V(PropertyName, StringValue)                                           \
+  PropertyName##_.Set(                                                         \
+      isolate_,                                                                \
+      Symbol::New(isolate_,                                                    \
+                  String::NewFromOneByte(                                      \
+                      isolate_,                                                \
+                      reinterpret_cast<const uint8_t*>(StringValue),           \
+                      NewStringType::kInternalized,                            \
+                      sizeof(StringValue) - 1)                                 \
+                      .ToLocalChecked()));
   PER_ISOLATE_SYMBOL_PROPERTIES(V)
 #undef V
-#define V(PropertyName, StringValue)                                        \
-    PropertyName ## _.Set(                                                  \
-        isolate,                                                            \
-        String::NewFromOneByte(                                             \
-            isolate,                                                        \
-            reinterpret_cast<const uint8_t*>(StringValue),                  \
-            NewStringType::kInternalized,                                   \
-            sizeof(StringValue) - 1).ToLocalChecked());
+#define V(PropertyName, StringValue)                                           \
+  PropertyName##_.Set(                                                         \
+      isolate_,                                                                \
+      String::NewFromOneByte(isolate_,                                         \
+                             reinterpret_cast<const uint8_t*>(StringValue),    \
+                             NewStringType::kInternalized,                     \
+                             sizeof(StringValue) - 1)                          \
+          .ToLocalChecked());
   PER_ISOLATE_STRING_PROPERTIES(V)
 #undef V
 }
 
-IsolateData::~IsolateData() {
-  if (platform_ != nullptr)
-    platform_->UnregisterIsolate(isolate_);
+IsolateData::IsolateData(Isolate* isolate,
+                         uv_loop_t* event_loop,
+                         MultiIsolatePlatform* platform,
+                         ArrayBufferAllocator* node_allocator,
+                         const std::vector<size_t>* indexes)
+    : isolate_(isolate),
+      event_loop_(event_loop),
+      allocator_(isolate->GetArrayBufferAllocator()),
+      node_allocator_(node_allocator == nullptr ? nullptr
+                                                : node_allocator->GetImpl()),
+      uses_node_allocator_(allocator_ == node_allocator_),
+      platform_(platform) {
+  CHECK_NOT_NULL(allocator_);
+
+  options_.reset(
+      new PerIsolateOptions(*(per_process::cli_options->per_isolate)));
+
+  if (indexes == nullptr) {
+    CreateProperties();
+  } else {
+    DeserializeProperties(indexes);
+  }
 }
 
+void IsolateData::MemoryInfo(MemoryTracker* tracker) const {
+#define V(PropertyName, StringValue)                                           \
+  tracker->TrackField(#PropertyName, PropertyName(isolate()));
+  PER_ISOLATE_SYMBOL_PROPERTIES(V)
+#undef V
+
+#define V(PropertyName, StringValue)                                           \
+  tracker->TrackField(#PropertyName, PropertyName(isolate()));
+  PER_ISOLATE_STRING_PROPERTIES(V)
+#undef V
+
+  if (node_allocator_ != nullptr) {
+    tracker->TrackFieldWithSize(
+        "node_allocator", sizeof(*node_allocator_), "NodeArrayBufferAllocator");
+  } else {
+    tracker->TrackFieldWithSize(
+        "allocator", sizeof(*allocator_), "v8::ArrayBuffer::Allocator");
+  }
+  tracker->TrackFieldWithSize(
+      "platform", sizeof(*platform_), "MultiIsolatePlatform");
+  // TODO(joyeecheung): implement MemoryRetainer in the option classes.
+}
 
 void InitThreadLocalOnce() {
   CHECK_EQ(0, uv_key_create(&Environment::thread_local_env));
 }
 
-void Environment::TrackingTraceStateObserver::UpdateTraceCategoryState() {
+void TrackingTraceStateObserver::UpdateTraceCategoryState() {
   if (!env_->owns_process_state()) {
     // Ideally, we’d have a consistent story that treats all threads/Environment
     // instances equally here. However, tracing is essentially global, and this
@@ -206,6 +264,8 @@ Environment::Environment(IsolateData* isolate_data,
     set_as_callback_data_template(templ);
   }
 
+  set_env_vars(per_process::system_environment);
+
   // We create new copies of the per-Environment option sets, so that it is
   // easier to modify them after Environment creation. The defaults are
   // part of the per-Isolate option set, for which in turn the defaults are
@@ -215,8 +275,7 @@ Environment::Environment(IsolateData* isolate_data,
 
 #if HAVE_INSPECTOR
   // We can only create the inspector agent after having cloned the options.
-  inspector_agent_ =
-      std::unique_ptr<inspector::Agent>(new inspector::Agent(this));
+  inspector_agent_ = std::make_unique<inspector::Agent>(this);
 #endif
 
   AssignToContext(context, ContextInfo(""));
@@ -236,7 +295,8 @@ Environment::Environment(IsolateData* isolate_data,
       },
       this);
 
-  performance_state_.reset(new performance::performance_state(isolate()));
+  performance_state_ =
+      std::make_unique<performance::performance_state>(isolate());
   performance_state_->Mark(
       performance::NODE_PERFORMANCE_MILESTONE_ENVIRONMENT);
   performance_state_->Mark(performance::NODE_PERFORMANCE_MILESTONE_NODE_START,
@@ -249,7 +309,7 @@ Environment::Environment(IsolateData* isolate_data,
   should_abort_on_uncaught_toggle_[0] = 1;
 
   std::string debug_cats;
-  credentials::SafeGetenv("NODE_DEBUG_NATIVE", &debug_cats);
+  credentials::SafeGetenv("NODE_DEBUG_NATIVE", &debug_cats, this);
   set_debug_categories(debug_cats, true);
 
   isolate()->GetHeapProfiler()->AddBuildEmbedderGraphCallback(
@@ -257,10 +317,6 @@ Environment::Environment(IsolateData* isolate_data,
   if (options_->no_force_async_hooks_checks) {
     async_hooks_.no_force_checks();
   }
-
-  // TODO(addaleax): the per-isolate state should not be controlled by
-  // a single Environment.
-  isolate()->SetPromiseRejectCallback(task_queue::PromiseRejectCallback);
 }
 
 CompileFnEntry::CompileFnEntry(Environment* env, uint32_t id)
@@ -320,7 +376,7 @@ Environment::~Environment() {
   }
 }
 
-void Environment::Start(bool start_profiler_idle_notifier) {
+void Environment::InitializeLibuv(bool start_profiler_idle_notifier) {
   HandleScope handle_scope(isolate());
   Context::Scope context_scope(context());
 
@@ -348,6 +404,14 @@ void Environment::Start(bool start_profiler_idle_notifier) {
   uv_unref(reinterpret_cast<uv_handle_t*>(&idle_prepare_handle_));
   uv_unref(reinterpret_cast<uv_handle_t*>(&idle_check_handle_));
 
+  thread_stopper()->Install(
+    this, static_cast<void*>(this), [](uv_async_t* handle) {
+      Environment* env = static_cast<Environment*>(handle->data);
+      uv_stop(env->event_loop());
+    });
+  thread_stopper()->set_stopped(false);
+  uv_unref(reinterpret_cast<uv_handle_t*>(thread_stopper()->GetHandle()));
+
   // Register clean-up cb to be called to clean up the handles
   // when the environment is freed, note that they are not cleaned in
   // the one environment per process setup, but will be called in
@@ -363,19 +427,17 @@ void Environment::Start(bool start_profiler_idle_notifier) {
   uv_key_set(&thread_local_env, this);
 }
 
+void Environment::ExitEnv() {
+  set_can_call_into_js(false);
+  thread_stopper()->Stop();
+  isolate_->TerminateExecution();
+}
+
 MaybeLocal<Object> Environment::ProcessCliArgs(
     const std::vector<std::string>& args,
     const std::vector<std::string>& exec_args) {
-  if (args.size() > 1) {
-    std::string first_arg = args[1];
-    if (first_arg == "inspect") {
-      execution_mode_ = ExecutionMode::kInspect;
-    } else if (first_arg == "debug") {
-      execution_mode_ = ExecutionMode::kDebug;
-    } else if (first_arg != "-") {
-      execution_mode_ = ExecutionMode::kRunMainModule;
-    }
-  }
+  argv_ = args;
+  exec_argv_ = exec_args;
 
   if (*TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
           TRACING_CATEGORY_NODE1(environment)) != 0) {
@@ -393,7 +455,6 @@ MaybeLocal<Object> Environment::ProcessCliArgs(
                                       std::move(traced_value));
   }
 
-  exec_argv_ = exec_args;
   Local<Object> process_object =
       node::CreateProcessObject(this, args, exec_args)
           .FromMaybe(Local<Object>());
@@ -479,54 +540,22 @@ void Environment::StopProfilerIdleNotifier() {
 }
 
 void Environment::PrintSyncTrace() const {
-  if (!options_->trace_sync_io)
-    return;
+  if (!options_->trace_sync_io) return;
 
   HandleScope handle_scope(isolate());
-  Local<StackTrace> stack =
-      StackTrace::CurrentStackTrace(isolate(), 10, StackTrace::kDetailed);
 
-  fprintf(stderr, "(node:%d) WARNING: Detected use of sync API\n",
-          uv_os_getpid());
-
-  for (int i = 0; i < stack->GetFrameCount() - 1; i++) {
-    Local<StackFrame> stack_frame = stack->GetFrame(isolate(), i);
-    node::Utf8Value fn_name_s(isolate(), stack_frame->GetFunctionName());
-    node::Utf8Value script_name(isolate(), stack_frame->GetScriptName());
-    const int line_number = stack_frame->GetLineNumber();
-    const int column = stack_frame->GetColumn();
-
-    if (stack_frame->IsEval()) {
-      if (stack_frame->GetScriptId() == Message::kNoScriptIdInfo) {
-        fprintf(stderr, "    at [eval]:%i:%i\n", line_number, column);
-      } else {
-        fprintf(stderr,
-                "    at [eval] (%s:%i:%i)\n",
-                *script_name,
-                line_number,
-                column);
-      }
-      break;
-    }
-
-    if (fn_name_s.length() == 0) {
-      fprintf(stderr, "    at %s:%i:%i\n", *script_name, line_number, column);
-    } else {
-      fprintf(stderr,
-              "    at %s (%s:%i:%i)\n",
-              *fn_name_s,
-              *script_name,
-              line_number,
-              column);
-    }
-  }
-  fflush(stderr);
+  fprintf(
+      stderr, "(node:%d) WARNING: Detected use of sync API\n", uv_os_getpid());
+  PrintStackTrace(
+      isolate(),
+      StackTrace::CurrentStackTrace(isolate(), 10, StackTrace::kDetailed));
 }
 
 void Environment::RunCleanup() {
   started_cleanup_ = true;
   TraceEventScope trace_scope(TRACING_CATEGORY_NODE1(environment),
                               "RunCleanup", this);
+  thread_stopper()->Uninstall();
   CleanupHandles();
 
   while (!cleanup_hooks_.empty()) {
@@ -583,56 +612,6 @@ void Environment::AtExit(void (*cb)(void* arg), void* arg) {
   at_exit_functions_.push_back(ExitCallback{cb, arg});
 }
 
-void Environment::AddPromiseHook(promise_hook_func fn, void* arg) {
-  auto it = std::find_if(
-      promise_hooks_.begin(), promise_hooks_.end(),
-      [&](const PromiseHookCallback& hook) {
-        return hook.cb_ == fn && hook.arg_ == arg;
-      });
-  if (it != promise_hooks_.end()) {
-    it->enable_count_++;
-    return;
-  }
-  promise_hooks_.push_back(PromiseHookCallback{fn, arg, 1});
-
-  if (promise_hooks_.size() == 1) {
-    isolate_->SetPromiseHook(EnvPromiseHook);
-  }
-}
-
-bool Environment::RemovePromiseHook(promise_hook_func fn, void* arg) {
-  auto it = std::find_if(
-      promise_hooks_.begin(), promise_hooks_.end(),
-      [&](const PromiseHookCallback& hook) {
-        return hook.cb_ == fn && hook.arg_ == arg;
-      });
-
-  if (it == promise_hooks_.end()) return false;
-
-  if (--it->enable_count_ > 0) return true;
-
-  promise_hooks_.erase(it);
-  if (promise_hooks_.empty()) {
-    isolate_->SetPromiseHook(nullptr);
-  }
-
-  return true;
-}
-
-void Environment::EnvPromiseHook(PromiseHookType type,
-                                 Local<Promise> promise,
-                                 Local<Value> parent) {
-  Local<Context> context = promise->CreationContext();
-
-  Environment* env = Environment::GetCurrent(context);
-  if (env == nullptr) return;
-  TraceEventScope trace_scope(TRACING_CATEGORY_NODE1(environment),
-                              "EnvPromiseHook", env);
-  for (const PromiseHookCallback& hook : env->promise_hooks_) {
-    hook.cb_(type, promise, parent, hook.arg_);
-  }
-}
-
 void Environment::RunAndClearNativeImmediates() {
   TraceEventScope trace_scope(TRACING_CATEGORY_NODE1(environment),
                               "RunAndClearNativeImmediates", this);
@@ -644,9 +623,7 @@ void Environment::RunAndClearNativeImmediates() {
     auto drain_list = [&]() {
       TryCatchScope try_catch(this);
       for (auto it = list.begin(); it != list.end(); ++it) {
-#ifdef DEBUG
-        v8::SealHandleScope seal_handle_scope(isolate());
-#endif
+        DebugSealHandleScope seal_handle_scope(isolate());
         it->cb_(this, it->data_);
         if (it->refed_)
           ref_count++;
@@ -801,7 +778,6 @@ Local<Value> Environment::GetNow() {
     return Number::New(isolate(), static_cast<double>(now));
 }
 
-
 void Environment::set_debug_categories(const std::string& cats, bool enabled) {
   std::string debug_categories = cats;
   while (!debug_categories.empty()) {
@@ -816,6 +792,7 @@ void Environment::set_debug_categories(const std::string& cats, bool enabled) {
     }
 
     DEBUG_CATEGORY_NAMES(V)
+#undef V
 
     if (comma_pos == std::string::npos)
       break;
@@ -834,33 +811,33 @@ void CollectExceptionInfo(Environment* env,
                           const char* dest) {
   obj->Set(env->context(),
            env->errno_string(),
-           Integer::New(env->isolate(), errorno)).FromJust();
+           Integer::New(env->isolate(), errorno)).Check();
 
   obj->Set(env->context(), env->code_string(),
-           OneByteString(env->isolate(), err_string)).FromJust();
+           OneByteString(env->isolate(), err_string)).Check();
 
   if (message != nullptr) {
     obj->Set(env->context(), env->message_string(),
-             OneByteString(env->isolate(), message)).FromJust();
+             OneByteString(env->isolate(), message)).Check();
   }
 
   Local<Value> path_buffer;
   if (path != nullptr) {
     path_buffer =
       Buffer::Copy(env->isolate(), path, strlen(path)).ToLocalChecked();
-    obj->Set(env->context(), env->path_string(), path_buffer).FromJust();
+    obj->Set(env->context(), env->path_string(), path_buffer).Check();
   }
 
   Local<Value> dest_buffer;
   if (dest != nullptr) {
     dest_buffer =
       Buffer::Copy(env->isolate(), dest, strlen(dest)).ToLocalChecked();
-    obj->Set(env->context(), env->dest_string(), dest_buffer).FromJust();
+    obj->Set(env->context(), env->dest_string(), dest_buffer).Check();
   }
 
   if (syscall != nullptr) {
     obj->Set(env->context(), env->syscall_string(),
-             OneByteString(env->isolate(), syscall)).FromJust();
+             OneByteString(env->isolate(), syscall)).Check();
   }
 }
 
@@ -884,14 +861,28 @@ void Environment::CollectUVExceptionInfo(Local<Value> object,
                              syscall, message, path, dest);
 }
 
+void ImmediateInfo::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("fields", fields_);
+}
 
-void Environment::AsyncHooks::grow_async_ids_stack() {
+void TickInfo::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("fields", fields_);
+}
+
+void AsyncHooks::MemoryInfo(MemoryTracker* tracker) const {
+  tracker->TrackField("providers", providers_);
+  tracker->TrackField("async_ids_stack", async_ids_stack_);
+  tracker->TrackField("fields", fields_);
+  tracker->TrackField("async_id_fields", async_id_fields_);
+}
+
+void AsyncHooks::grow_async_ids_stack() {
   async_ids_stack_.reserve(async_ids_stack_.Length() * 3);
 
   env()->async_hooks_binding()->Set(
       env()->context(),
       env()->async_ids_stack_string(),
-      async_ids_stack_.GetJSArray()).FromJust();
+      async_ids_stack_.GetJSArray()).Check();
 }
 
 uv_key_t Environment::thread_local_env = {};
@@ -915,16 +906,91 @@ void Environment::stop_sub_worker_contexts() {
   }
 }
 
+#if HAVE_INSPECTOR
+
+#endif  // HAVE_INSPECTOR
+
+void MemoryTracker::TrackField(const char* edge_name,
+                               const CleanupHookCallback& value,
+                               const char* node_name) {
+  v8::HandleScope handle_scope(isolate_);
+  // Here, we utilize the fact that CleanupHookCallback instances
+  // are all unique and won't be tracked twice in one BuildEmbedderGraph
+  // callback.
+  MemoryRetainerNode* n =
+      PushNode("CleanupHookCallback", sizeof(value), edge_name);
+  // TODO(joyeecheung): at the moment only arguments of type BaseObject will be
+  // identified and tracked here (based on their deleters),
+  // but we may convert and track other known types here.
+  BaseObject* obj = value.GetBaseObject();
+  if (obj != nullptr) {
+    this->TrackField("arg", obj);
+  }
+  CHECK_EQ(CurrentNode(), n);
+  CHECK_NE(n->size_, 0);
+  PopNode();
+}
+
 void Environment::BuildEmbedderGraph(Isolate* isolate,
                                      EmbedderGraph* graph,
                                      void* data) {
   MemoryTracker tracker(isolate, graph);
-  static_cast<Environment*>(data)->ForEachBaseObject([&](BaseObject* obj) {
-    tracker.Track(obj);
-  });
+  Environment* env = static_cast<Environment*>(data);
+  tracker.Track(env);
+}
+
+inline size_t Environment::SelfSize() const {
+  size_t size = sizeof(*this);
+  // Remove non pointer fields that will be tracked in MemoryInfo()
+  // TODO(joyeecheung): refactor the MemoryTracker interface so
+  // this can be done for common types within the Track* calls automatically
+  // if a certain scope is entered.
+  size -= sizeof(thread_stopper_);
+  size -= sizeof(async_hooks_);
+  size -= sizeof(tick_info_);
+  size -= sizeof(immediate_info_);
+  return size;
+}
+
+void Environment::MemoryInfo(MemoryTracker* tracker) const {
+  // Iteratable STLs have their own sizes subtracted from the parent
+  // by default.
+  tracker->TrackField("isolate_data", isolate_data_);
+  tracker->TrackField("native_modules_with_cache", native_modules_with_cache);
+  tracker->TrackField("native_modules_without_cache",
+                      native_modules_without_cache);
+  tracker->TrackField("destroy_async_id_list", destroy_async_id_list_);
+  tracker->TrackField("exec_argv", exec_argv_);
+  tracker->TrackField("should_abort_on_uncaught_toggle",
+                      should_abort_on_uncaught_toggle_);
+  tracker->TrackField("stream_base_state", stream_base_state_);
+  tracker->TrackField("fs_stats_field_array", fs_stats_field_array_);
+  tracker->TrackField("fs_stats_field_bigint_array",
+                      fs_stats_field_bigint_array_);
+  tracker->TrackField("thread_stopper", thread_stopper_);
+  tracker->TrackField("cleanup_hooks", cleanup_hooks_);
+  tracker->TrackField("async_hooks", async_hooks_);
+  tracker->TrackField("immediate_info", immediate_info_);
+  tracker->TrackField("tick_info", tick_info_);
+
+#define V(PropertyName, TypeName)                                              \
+  tracker->TrackField(#PropertyName, PropertyName());
+  ENVIRONMENT_STRONG_PERSISTENT_VALUES(V)
+#undef V
+
+  // FIXME(joyeecheung): track other fields in Environment.
+  // Currently MemoryTracker is unable to track these
+  // correctly:
+  // - Internal types that do not implement MemoryRetainer yet
+  // - STL containers with MemoryRetainer* inside
+  // - STL containers with numeric types inside that should not have their
+  //   nodes elided e.g. numeric keys in maps.
+  // We also need to make sure that when we add a non-pointer field as its own
+  // node, we shift its sizeof() size out of the Environment node.
 }
 
 char* Environment::Reallocate(char* data, size_t old_size, size_t size) {
+  if (old_size == size) return data;
   // If we know that the allocator is our ArrayBufferAllocator, we can let
   // if reallocate directly.
   if (isolate_data()->uses_node_allocator()) {
@@ -942,6 +1008,38 @@ char* Environment::Reallocate(char* data, size_t old_size, size_t size) {
   return new_data;
 }
 
+void AsyncRequest::Install(Environment* env, void* data, uv_async_cb target) {
+  CHECK_NULL(async_);
+  env_ = env;
+  async_ = new uv_async_t;
+  async_->data = data;
+  CHECK_EQ(uv_async_init(env_->event_loop(), async_, target), 0);
+}
+
+void AsyncRequest::Uninstall() {
+  if (async_ != nullptr) {
+    env_->CloseHandle(async_, [](uv_async_t* async) { delete async; });
+    async_ = nullptr;
+  }
+}
+
+void AsyncRequest::Stop() {
+  set_stopped(true);
+  if (async_ != nullptr) uv_async_send(async_);
+}
+
+uv_async_t* AsyncRequest::GetHandle() {
+  return async_;
+}
+
+void AsyncRequest::MemoryInfo(MemoryTracker* tracker) const {
+  if (async_ != nullptr) tracker->TrackField("async_request", *async_);
+}
+
+AsyncRequest::~AsyncRequest() {
+  CHECK_NULL(async_);
+}
+
 // Not really any better place than env.cc at this moment.
 void BaseObject::DeleteMe(void* data) {
   BaseObject* self = static_cast<BaseObject*>(data);
@@ -950,10 +1048,6 @@ void BaseObject::DeleteMe(void* data) {
 
 Local<Object> BaseObject::WrappedObject() const {
   return object();
-}
-
-bool BaseObject::IsRootNode() const {
-  return !persistent_handle_.IsWeak();
 }
 
 }  // namespace node

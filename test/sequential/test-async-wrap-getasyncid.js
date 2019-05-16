@@ -5,6 +5,7 @@ const common = require('../common');
 const { internalBinding } = require('internal/test/binding');
 const assert = require('assert');
 const fs = require('fs');
+const v8 = require('v8');
 const fsPromises = fs.promises;
 const net = require('net');
 const providers = Object.assign({}, internalBinding('async_wrap').Providers);
@@ -47,6 +48,8 @@ const { getSystemErrorName } = require('util');
     if (!common.isMainThread)
       delete providers.INSPECTORJSBINDING;
     delete providers.KEYPAIRGENREQUEST;
+    delete providers.HTTPCLIENTREQUEST;
+    delete providers.HTTPINCOMINGMESSAGE;
 
     const objKeys = Object.keys(providers);
     if (objKeys.length > 0)
@@ -149,7 +152,10 @@ if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
 
 {
   const { HTTPParser } = require('_http_common');
-  testInitialized(new HTTPParser(HTTPParser.REQUEST), 'HTTPParser');
+  const parser = new HTTPParser();
+  testUninitialized(parser, 'HTTPParser');
+  parser.initialize(HTTPParser.REQUEST, {});
+  testInitialized(parser, 'HTTPParser');
 }
 
 
@@ -268,8 +274,7 @@ if (common.hasCrypto) { // eslint-disable-line node-core/crypto-check
 
   // TLSWrap is exposed, but needs to be instantiated via tls_wrap.wrap().
   const tls_wrap = internalBinding('tls_wrap');
-  testInitialized(
-    tls_wrap.wrap(tcp._externalStream, credentials.context, true), 'TLSWrap');
+  testInitialized(tls_wrap.wrap(tcp, credentials.context, true), 'TLSWrap');
 }
 
 {
@@ -294,4 +299,9 @@ if (process.features.inspector && common.isMainThread) {
   const handle = new binding.Connection(() => {});
   testInitialized(handle, 'Connection');
   handle.disconnect();
+}
+
+// PROVIDER_HEAPDUMP
+{
+  v8.getHeapSnapshot().destroy();
 }

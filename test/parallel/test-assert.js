@@ -65,6 +65,7 @@ assert.throws(() => a.notEqual(true, true),
 assert.throws(() => a.strictEqual(2, '2'),
               a.AssertionError, 'strictEqual(2, \'2\')');
 
+/* eslint-disable no-restricted-syntax */
 assert.throws(() => a.strictEqual(null, undefined),
               a.AssertionError, 'strictEqual(null, undefined)');
 
@@ -72,16 +73,24 @@ assert.throws(
   () => a.notStrictEqual(2, 2),
   {
     message: 'Expected "actual" to be strictly unequal to: 2',
-    name: 'AssertionError [ERR_ASSERTION]'
+    name: 'AssertionError'
   }
 );
 
 assert.throws(
   () => a.notStrictEqual('a '.repeat(30), 'a '.repeat(30)),
   {
-    message: 'Expected "actual" to be strictly unequal to: ' +
+    message: 'Expected "actual" to be strictly unequal to:\n\n' +
              `'${'a '.repeat(30)}'`,
-    name: 'AssertionError [ERR_ASSERTION]'
+    name: 'AssertionError'
+  }
+);
+
+assert.throws(
+  () => a.notEqual(1, 1),
+  {
+    message: '1 != 1',
+    operator: '!='
   }
 );
 
@@ -95,11 +104,9 @@ function thrower(errorConstructor) {
 // The basic calls work.
 assert.throws(() => thrower(a.AssertionError), a.AssertionError, 'message');
 assert.throws(() => thrower(a.AssertionError), a.AssertionError);
-// eslint-disable-next-line no-restricted-syntax
 assert.throws(() => thrower(a.AssertionError));
 
 // If not passing an error, catch all.
-// eslint-disable-next-line no-restricted-syntax
 assert.throws(() => thrower(TypeError));
 
 // When passing a type, only catch errors of the appropriate type.
@@ -142,7 +149,7 @@ assert.throws(() => thrower(TypeError));
 assert.throws(
   () => a.doesNotThrow(() => thrower(Error), 'user message'),
   {
-    name: 'AssertionError [ERR_ASSERTION]',
+    name: 'AssertionError',
     code: 'ERR_ASSERTION',
     operator: 'doesNotThrow',
     message: 'Got unwanted exception: user message\n' +
@@ -282,15 +289,15 @@ testShortAssertionMessage('a', '"a"');
 testShortAssertionMessage('foo', '\'foo\'');
 testShortAssertionMessage(0, '0');
 testShortAssertionMessage(Symbol(), 'Symbol()');
+testShortAssertionMessage(undefined, 'undefined');
+testShortAssertionMessage(-Infinity, '-Infinity');
 testAssertionMessage([], '[]');
 testAssertionMessage(/a/, '/a/');
 testAssertionMessage(/abc/gim, '/abc/gim');
 testAssertionMessage({}, '{}');
-testAssertionMessage(undefined, 'undefined');
-testAssertionMessage(-Infinity, '-Infinity');
 testAssertionMessage([1, 2, 3], '[\n+   1,\n+   2,\n+   3\n+ ]');
 testAssertionMessage(function f() {}, '[Function: f]');
-testAssertionMessage(function() {}, '[Function]');
+testAssertionMessage(function() {}, '[Function (anonymous)]');
 testAssertionMessage(circular, '{\n+   x: [Circular],\n+   y: 1\n+ }');
 testAssertionMessage({ a: undefined, b: null },
                      '{\n+   a: undefined,\n+   b: null\n+ }');
@@ -298,23 +305,21 @@ testAssertionMessage({ a: NaN, b: Infinity, c: -Infinity },
                      '{\n+   a: NaN,\n+   b: Infinity,\n+   c: -Infinity\n+ }');
 
 // https://github.com/nodejs/node-v0.x-archive/issues/5292
-try {
-  assert.strictEqual(1, 2);
-} catch (e) {
-  assert.strictEqual(
-    e.message,
-    `${strictEqualMessageStart}\n1 !== 2\n`
-  );
-  assert.ok(e.generatedMessage, 'Message not marked as generated');
-}
+assert.throws(
+  () => assert.strictEqual(1, 2),
+  {
+    message: `${strictEqualMessageStart}\n1 !== 2\n`,
+    generatedMessage: true
+  }
+);
 
-try {
-  assert.strictEqual(1, 2, 'oh no'); // eslint-disable-line no-restricted-syntax
-} catch (e) {
-  assert.strictEqual(e.message, 'oh no');
-  // Message should not be marked as generated.
-  assert.strictEqual(e.generatedMessage, false);
-}
+assert.throws(
+  () => assert.strictEqual(1, 2, 'oh no'),
+  {
+    message: 'oh no',
+    generatedMessage: false
+  }
+);
 
 {
   let threw = false;
@@ -401,7 +406,7 @@ assert.throws(() => {
       () => new assert.AssertionError(input),
       {
         code: 'ERR_INVALID_ARG_TYPE',
-        name: 'TypeError [ERR_INVALID_ARG_TYPE]',
+        name: 'TypeError',
         message: 'The "options" argument must be of type Object. ' +
                  `Received type ${typeof input}`
       });
@@ -412,7 +417,7 @@ assert.throws(
   () => assert.strictEqual(new Error('foo'), new Error('foobar')),
   {
     code: 'ERR_ASSERTION',
-    name: 'AssertionError [ERR_ASSERTION]',
+    name: 'AssertionError',
     message: 'Expected "actual" to be reference-equal to "expected":\n' +
              '+ actual - expected\n\n' +
              '+ [Error: foo]\n- [Error: foobar]'
@@ -439,7 +444,7 @@ assert.throws(
     () => assert(...[]),
     {
       message: 'No value argument passed to `assert.ok()`',
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       generatedMessage: true
     }
   );
@@ -447,7 +452,7 @@ assert.throws(
     () => a(),
     {
       message: 'No value argument passed to `assert.ok()`',
-      name: 'AssertionError [ERR_ASSERTION]'
+      name: 'AssertionError'
     }
   );
 
@@ -561,7 +566,7 @@ assert.throws(
     '- undefined',
   ].join('\n');
   assert.throws(
-    () => assert.deepEqual([1, 2, 1]),
+    () => assert.deepEqual([1, 2, 1], undefined),
     { message });
 
   message = [
@@ -582,12 +587,12 @@ assert.throws(
     `${actExp} ... Lines skipped\n` +
     '\n' +
     '  [\n' +
-    '+   1,\n'.repeat(10) +
+    '+   1,\n'.repeat(25) +
     '...\n' +
-    '-   2,\n'.repeat(10) +
+    '-   2,\n'.repeat(25) +
     '...';
   assert.throws(
-    () => assert.deepEqual(Array(12).fill(1), Array(12).fill(2)),
+    () => assert.deepEqual(Array(28).fill(1), Array(28).fill(2)),
     { message });
 
   const obj1 = {};
@@ -600,7 +605,7 @@ assert.throws(
     '\n' +
     '+ {}\n' +
     '- {\n' +
-    '-   [Symbol(nodejs.util.inspect.custom)]: [Function],\n' +
+    '-   [Symbol(nodejs.util.inspect.custom)]: [Function (anonymous)],\n' +
     "-   loop: 'forever'\n" +
     '- }'
   });
@@ -615,8 +620,8 @@ assert.throws(
   );
 
   message = 'Expected "actual" not to be strictly deep-equal to:' +
-            `\n\n[${'\n  1,'.repeat(25)}\n...\n`;
-  const data = Array(31).fill(1);
+            `\n\n[${'\n  1,'.repeat(45)}\n...\n`;
+  const data = Array(51).fill(1);
   assert.throws(
     () => assert.notDeepEqual(data, data),
     { message });
@@ -634,13 +639,13 @@ common.expectsError(
   }
 );
 common.expectsError(
-  () => assert(typeof 123 === 'string'),
+  () => assert(typeof 123n === 'string'),
   {
     code: 'ERR_ASSERTION',
     type: assert.AssertionError,
     generatedMessage: true,
     message: 'The expression evaluated to a falsy value:\n\n  ' +
-             "assert(typeof 123 === 'string')\n"
+             "assert(typeof 123n === 'string')\n"
   }
 );
 
@@ -833,7 +838,6 @@ common.expectsError(
 );
 
 common.expectsError(
-  // eslint-disable-next-line no-restricted-syntax
   () => assert.throws(() => {}, 'Error message', 'message'),
   {
     code: 'ERR_INVALID_ARG_TYPE',
@@ -888,7 +892,7 @@ common.expectsError(
     () => assert.throws(errFn, errObj),
     {
       code: 'ERR_ASSERTION',
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       message: `${start}\n${actExp}\n\n` +
                '  Comparison {\n' +
                '    code: 404,\n' +
@@ -905,7 +909,7 @@ common.expectsError(
     () => assert.throws(errFn, errObj),
     {
       code: 'ERR_ASSERTION',
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       message: `${start}\n${actExp}\n\n` +
                '  Comparison {\n' +
                '+   code: 404,\n' +
@@ -940,7 +944,7 @@ common.expectsError(
   assert.throws(
     () => assert.throws(() => { throw new TypeError('e'); }, new Error('e')),
     {
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       code: 'ERR_ASSERTION',
       message: `${start}\n${actExp}\n\n` +
                '  Comparison {\n' +
@@ -953,7 +957,7 @@ common.expectsError(
   assert.throws(
     () => assert.throws(() => { throw new Error('foo'); }, new Error('')),
     {
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       code: 'ERR_ASSERTION',
       generatedMessage: true,
       message: `${start}\n${actExp}\n\n` +
@@ -971,7 +975,7 @@ common.expectsError(
     // eslint-disable-next-line no-throw-literal
     () => a.doesNotThrow(() => { throw undefined; }),
     {
-      name: 'AssertionError [ERR_ASSERTION]',
+      name: 'AssertionError',
       code: 'ERR_ASSERTION',
       message: 'Got unwanted exception.\nActual message: "undefined"'
     }
@@ -1010,6 +1014,7 @@ assert.throws(
              'The error message "foo" is identical to the message.'
   }
 );
+/* eslint-enable no-restricted-syntax */
 
 // Should not throw.
 // eslint-disable-next-line no-restricted-syntax, no-throw-literal
@@ -1103,7 +1108,7 @@ assert.throws(
   () => assert.strictEqual('test test', 'test foobar'),
   {
     code: 'ERR_ASSERTION',
-    name: 'AssertionError [ERR_ASSERTION]',
+    name: 'AssertionError',
     message: strictEqualMessageStart +
              '+ actual - expected\n\n' +
              "+ 'test test'\n" +
@@ -1120,7 +1125,7 @@ assert.throws(
   },
   {
     code: 'ERR_ASSERTION',
-    name: 'AssertionError [ERR_ASSERTION]',
+    name: 'AssertionError',
     message: 'Expected "actual" not to be reference-equal to "expected": {}'
   }
 );
@@ -1132,7 +1137,7 @@ assert.throws(
   },
   {
     code: 'ERR_ASSERTION',
-    name: 'AssertionError [ERR_ASSERTION]',
+    name: 'AssertionError',
     message: 'Expected "actual" not to be reference-equal to "expected":\n\n' +
              '{\n  a: true\n}\n'
   }
@@ -1147,4 +1152,72 @@ assert.throws(
     assert(/actual: \[Array],\n  expected: 'foobar',/.test(inspect(err)));
   }
   assert(threw);
+}
+
+assert.throws(
+  () => a.equal(1),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.deepEqual(/a/),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.notEqual(null),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.notDeepEqual('test'),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.strictEqual({}),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.deepStrictEqual(Symbol()),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.notStrictEqual(5n),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.notDeepStrictEqual(undefined),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.strictEqual(),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+assert.throws(
+  () => a.deepStrictEqual(),
+  { code: 'ERR_MISSING_ARGS' }
+);
+
+// Verify that `stackStartFunction` works as alternative to `stackStartFn`.
+{
+  (function hidden() {
+    const err = new assert.AssertionError({
+      actual: 'foo',
+      operator: 'strictEqual',
+      stackStartFunction: hidden
+    });
+    const err2 = new assert.AssertionError({
+      actual: 'foo',
+      operator: 'strictEqual',
+      stackStartFn: hidden
+    });
+    assert(!err.stack.includes('hidden'));
+    assert(!err2.stack.includes('hidden'));
+  })();
 }

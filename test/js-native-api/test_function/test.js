@@ -4,7 +4,7 @@
 const common = require('../../common');
 const assert = require('assert');
 
-// testing api calls for function
+// Testing api calls for function
 const test_function = require(`./build/${common.buildType}/test_function`);
 
 function func1() {
@@ -35,3 +35,10 @@ let tracked_function = test_function.MakeTrackedFunction(common.mustCall());
 assert(!!tracked_function);
 tracked_function = null;
 global.gc();
+
+assert.deepStrictEqual(test_function.TestCreateFunctionParameters(), {
+  envIsNull: 'pass',
+  nameIsNull: 'pass',
+  cbIsNull: 'pass',
+  resultIsNull: 'pass'
+});

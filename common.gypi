@@ -1,5 +1,6 @@
 {
   'variables': {
+    'configuring_node%': 0,
     'asan%': 0,
     'werror': '',                     # Turn off -Werror in V8 build.
     'visibility%': 'hidden',          # V8's visibility setting
@@ -37,12 +38,15 @@
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.14',
+    'v8_embedder_string': '-node.17',
 
     ##### V8 defaults for Node.js #####
 
     # Old time default, now explicitly stated.
-    'v8_use_snapshot': 'true',
+    'v8_use_snapshot': 1,
+
+    # Turn on SipHash for hash seed generation, addresses HashWick
+    'v8_use_siphash': 'true',
 
     # These are more relevant for V8 internal development.
     # Refs: https://github.com/nodejs/node/issues/23122
@@ -55,21 +59,12 @@
     # Enable disassembler for `--print-code` v8 options
     'v8_enable_disassembler': 1,
 
-    # Don't bake anything extra into the snapshot.
-    'v8_use_external_startup_data': 0,
-
     # https://github.com/nodejs/node/pull/22920/files#r222779926
     'v8_enable_handle_zapping': 0,
 
     # Disable V8 untrusted code mitigations.
     # See https://github.com/v8/v8/wiki/Untrusted-code-mitigations
-    'v8_untrusted_code_mitigations': 'false',
-
-    # Still WIP in V8 7.1
-    'v8_enable_pointer_compression': 'false',
-
-    # New in V8 7.1
-    'v8_enable_embedded_builtins': 'true',
+    'v8_untrusted_code_mitigations': 0,
 
     # This is more of a V8 dev setting
     # https://github.com/nodejs/node/pull/22920/files#r222779926
@@ -86,38 +81,23 @@
       }],
       ['GENERATOR=="ninja"', {
         'obj_dir': '<(PRODUCT_DIR)/obj',
-        'conditions': [
-          [ 'build_v8_with_gn=="true"', {
-            'v8_base': '<(PRODUCT_DIR)/obj/deps/v8/gypfiles/v8_monolith.gen/gn/obj/libv8_monolith.a',
-          }, {
-            'v8_base': '<(PRODUCT_DIR)/obj/deps/v8/gypfiles/libv8_base.a',
-          }],
-        ]
+        'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_base.a',
        }, {
         'obj_dir%': '<(PRODUCT_DIR)/obj.target',
-        'v8_base': '<(PRODUCT_DIR)/obj.target/deps/v8/gypfiles/libv8_base.a',
+        'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_base.a',
       }],
       ['OS == "win"', {
         'os_posix': 0,
-        'v8_postmortem_support%': 'false',
+        'v8_postmortem_support%': 0,
         'obj_dir': '<(PRODUCT_DIR)/obj',
         'v8_base': '<(PRODUCT_DIR)/lib/v8_libbase.lib',
       }, {
         'os_posix': 1,
-        'v8_postmortem_support%': 'true',
+        'v8_postmortem_support%': 1,
       }],
       ['OS == "mac"', {
         'obj_dir%': '<(PRODUCT_DIR)/obj.target',
         'v8_base': '<(PRODUCT_DIR)/libv8_base.a',
-      }],
-      ['build_v8_with_gn == "true"', {
-        'conditions': [
-          ['GENERATOR == "ninja"', {
-            'v8_base': '<(PRODUCT_DIR)/obj/deps/v8/gypfiles/v8_monolith.gen/gn/obj/libv8_monolith.a',
-          }, {
-            'v8_base': '<(PRODUCT_DIR)/obj.target/v8_monolith/geni/gn/obj/libv8_monolith.a',
-          }],
-        ],
       }],
       ['openssl_fips != ""', {
         'openssl_product': '<(STATIC_LIB_PREFIX)crypto<(STATIC_LIB_SUFFIX)',
@@ -301,6 +281,12 @@
     'msvs_cygwin_shell': 0, # prevent actions from trying to use cygwin
 
     'conditions': [
+      [ 'configuring_node', {
+        'msvs_configuration_attributes': {
+          'OutputDirectory': '<(DEPTH)/out/$(Configuration)/',
+          'IntermediateDirectory': '$(OutDir)obj/$(ProjectName)/'
+        },
+      }],
       [ 'target_arch=="x64"', {
         'msvs_configuration_platform': 'x64',
       }],
@@ -450,7 +436,7 @@
           'GCC_ENABLE_CPP_RTTI': 'NO',              # -fno-rtti
           'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
           'PREBINDING': 'NO',                       # No -Wl,-prebind
-          'MACOSX_DEPLOYMENT_TARGET': '10.7',       # -mmacosx-version-min=10.7
+          'MACOSX_DEPLOYMENT_TARGET': '10.10',      # -mmacosx-version-min=10.10
           'USE_HEADERMAP': 'NO',
           'OTHER_CFLAGS': [
             '-fno-strict-aliasing',

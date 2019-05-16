@@ -4,6 +4,7 @@
 #include "node_internals.h"
 #include "node_v8_platform-inl.h"
 #include "tracing/agent.h"
+#include "util-inl.h"
 
 #include <set>
 #include <string>
@@ -11,7 +12,6 @@
 namespace node {
 
 using v8::Array;
-using v8::Boolean;
 using v8::Context;
 using v8::Function;
 using v8::FunctionCallbackInfo;
@@ -135,7 +135,7 @@ void NodeCategorySet::Initialize(Local<Object> target,
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "CategorySet"),
               category_set->GetFunction(env->context()).ToLocalChecked())
-              .FromJust();
+              .Check();
 
   Local<String> isTraceCategoryEnabled =
       FIXED_ONE_BYTE_STRING(env->isolate(), "isTraceCategoryEnabled");
@@ -146,18 +146,9 @@ void NodeCategorySet::Initialize(Local<Object> target,
   Local<Object> binding = context->GetExtrasBindingObject();
   target->Set(context, isTraceCategoryEnabled,
               binding->Get(context, isTraceCategoryEnabled).ToLocalChecked())
-                  .FromJust();
+                  .Check();
   target->Set(context, trace,
-              binding->Get(context, trace).ToLocalChecked()).FromJust();
-
-  // Initial value of async hook trace events
-  bool async_hooks_enabled = (*(TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
-                                 TRACING_CATEGORY_NODE1(async_hooks)))) != 0;
-  target
-      ->Set(context,
-            FIXED_ONE_BYTE_STRING(env->isolate(), "asyncHooksEnabledInitial"),
-            Boolean::New(env->isolate(), async_hooks_enabled))
-      .FromJust();
+              binding->Get(context, trace).ToLocalChecked()).Check();
 }
 
 }  // namespace node

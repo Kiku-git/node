@@ -1,5 +1,5 @@
 #include "env-inl.h"
-#include "node.h"
+#include "node_internals.h"
 #include "node_process.h"
 #include "async_wrap.h"
 
@@ -11,7 +11,6 @@ using v8::Integer;
 using v8::Isolate;
 using v8::Local;
 using v8::Object;
-using v8::SealHandleScope;
 using v8::String;
 using v8::Value;
 using v8::NewStringType;
@@ -50,7 +49,7 @@ int EmitExit(Environment* env) {
       ->Set(env->context(),
             FIXED_ONE_BYTE_STRING(env->isolate(), "_exiting"),
             True(env->isolate()))
-      .FromJust();
+      .Check();
 
   Local<String> exit_code = env->exit_code_string();
   int code = process_object->Get(env->context(), exit_code)
@@ -64,12 +63,6 @@ int EmitExit(Environment* env) {
       .ToLocalChecked()
       ->Int32Value(env->context())
       .ToChecked();
-}
-
-void AddPromiseHook(Isolate* isolate, promise_hook_func fn, void* arg) {
-  Environment* env = Environment::GetCurrent(isolate);
-  CHECK_NOT_NULL(env);
-  env->AddPromiseHook(fn, arg);
 }
 
 void AddEnvironmentCleanupHook(Isolate* isolate,
@@ -116,9 +109,7 @@ async_context EmitAsyncInit(Isolate* isolate,
                             Local<Object> resource,
                             Local<String> name,
                             async_id trigger_async_id) {
-#ifdef DEBUG
-  SealHandleScope handle_scope(isolate);
-#endif
+  DebugSealHandleScope handle_scope(isolate);
   Environment* env = Environment::GetCurrent(isolate);
   CHECK_NOT_NULL(env);
 
@@ -139,8 +130,11 @@ async_context EmitAsyncInit(Isolate* isolate,
 }
 
 void EmitAsyncDestroy(Isolate* isolate, async_context asyncContext) {
-  AsyncWrap::EmitDestroy(
-      Environment::GetCurrent(isolate), asyncContext.async_id);
+  EmitAsyncDestroy(Environment::GetCurrent(isolate), asyncContext);
+}
+
+void EmitAsyncDestroy(Environment* env, async_context asyncContext) {
+  AsyncWrap::EmitDestroy(env, asyncContext.async_id);
 }
 
 }  // namespace node

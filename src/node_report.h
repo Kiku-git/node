@@ -1,43 +1,31 @@
-#ifndef SRC_NODE_REPORT_H_
-#define SRC_NODE_REPORT_H_
+#pragma once
 
-#include <node.h>
-#include <node_buffer.h>
-#include <uv.h>
-#include <algorithm>
-#include <climits>
-#include <cstdlib>
-#include <cstring>
-#include <queue>
-#include <string>
-#include <utility>
-#include <vector>
+#include "node.h"
+#include "node_buffer.h"
+#include "uv.h"
 #include "v8.h"
+#include "util.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-#include <limits>
-
-#ifdef _WIN32
-#include <time.h>
-#else
-#include <sys/time.h>
+#ifndef _WIN32
 #include <sys/types.h>
 #include <unistd.h>
 #endif
 
-namespace report {
+#include <climits>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <limits>
+#include <algorithm>
+#include <queue>
+#include <string>
+#include <utility>
+#include <vector>
 
-#ifdef _WIN32
-typedef SYSTEMTIME TIME_TYPE;
-#define PATHSEP "\\"
-#else  // UNIX, OSX
-typedef struct tm TIME_TYPE;
-#define PATHSEP "/"
-#endif
+namespace report {
 
 // Function declarations - functions in src/node_report.cc
 std::string TriggerNodeReport(v8::Isolate* isolate,
@@ -67,7 +55,7 @@ std::string ValueToHexString(T value) {
 }
 
 // Function declarations - export functions in src/node_report_module.cc
-void TriggerReport(const v8::FunctionCallbackInfo<v8::Value>& info);
+void WriteReport(const v8::FunctionCallbackInfo<v8::Value>& info);
 void GetReport(const v8::FunctionCallbackInfo<v8::Value>& info);
 
 // Node.js boot time - defined in src/node.cc
@@ -185,5 +173,3 @@ class JSONWriter {
 };
 
 }  // namespace report
-
-#endif  // SRC_NODE_REPORT_H_

@@ -1,6 +1,9 @@
 #include "env-inl.h"
 #include "node.h"
+#include "node_errors.h"
 #include "node_internals.h"
+#include "node_process.h"
+#include "util-inl.h"
 #include "v8.h"
 
 #include <atomic>
@@ -9,6 +12,7 @@ namespace node {
 
 using v8::Array;
 using v8::Context;
+using v8::Exception;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::Isolate;
@@ -17,6 +21,7 @@ using v8::kPromiseRejectAfterResolved;
 using v8::kPromiseRejectWithNoHandler;
 using v8::kPromiseResolveAfterResolved;
 using v8::Local;
+using v8::Message;
 using v8::Number;
 using v8::Object;
 using v8::Promise;
@@ -25,6 +30,29 @@ using v8::PromiseRejectMessage;
 using v8::Value;
 
 namespace task_queue {
+
+static void EnqueueMicrotask(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
+
+  CHECK(args[0]->IsFunction());
+
+  isolate->EnqueueMicrotask(args[0].As<Function>());
+}
+
+// Should be in sync with runNextTicks in internal/process/task_queues.js
+bool RunNextTicksNative(Environment* env) {
+  TickInfo* tick_info = env->tick_info();
+  if (!tick_info->has_tick_scheduled() && !tick_info->has_rejection_to_warn())
+    env->isolate()->RunMicrotasks();
+  if (!tick_info->has_tick_scheduled() && !tick_info->has_rejection_to_warn())
+    return true;
+
+  Local<Function> callback = env->tick_callback_function();
+  CHECK(!callback.IsEmpty());
+  return !callback->Call(env->context(), env->process_object(), 0, nullptr)
+              .IsEmpty();
+}
 
 static void RunMicrotasks(const FunctionCallbackInfo<Value>& args) {
   args.GetIsolate()->RunMicrotasks();
@@ -95,6 +123,19 @@ static void SetPromiseRejectCallback(
   env->set_promise_reject_callback(args[0].As<Function>());
 }
 
+static void TriggerFatalException(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Environment* env = Environment::GetCurrent(isolate);
+  Local<Value> exception = args[0];
+  Local<Message> message = Exception::CreateMessage(isolate, exception);
+  if (env != nullptr && env->abort_on_uncaught_exception()) {
+    ReportException(env, exception, message);
+    Abort();
+  }
+  bool from_promise = args[1]->IsTrue();
+  FatalException(isolate, exception, message, from_promise);
+}
+
 static void Initialize(Local<Object> target,
                        Local<Value> unused,
                        Local<Context> context,
@@ -102,11 +143,13 @@ static void Initialize(Local<Object> target,
   Environment* env = Environment::GetCurrent(context);
   Isolate* isolate = env->isolate();
 
+  env->SetMethod(target, "triggerFatalException", TriggerFatalException);
+  env->SetMethod(target, "enqueueMicrotask", EnqueueMicrotask);
   env->SetMethod(target, "setTickCallback", SetTickCallback);
   env->SetMethod(target, "runMicrotasks", RunMicrotasks);
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(isolate, "tickInfo"),
-              env->tick_info()->fields().GetJSArray()).FromJust();
+              env->tick_info()->fields().GetJSArray()).Check();
 
   Local<Object> events = Object::New(isolate);
   NODE_DEFINE_CONSTANT(events, kPromiseRejectWithNoHandler);
@@ -116,7 +159,7 @@ static void Initialize(Local<Object> target,
 
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(isolate, "promiseRejectEvents"),
-              events).FromJust();
+              events).Check();
   env->SetMethod(target,
                  "setPromiseRejectCallback",
                  SetPromiseRejectCallback);

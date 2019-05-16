@@ -41,13 +41,12 @@ using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Int32;
+using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
 using v8::Object;
 using v8::String;
 using v8::Value;
-
-using AsyncHooks = Environment::AsyncHooks;
 
 MaybeLocal<Object> PipeWrap::Instantiate(Environment* env,
                                          AsyncWrap* parent,
@@ -74,7 +73,8 @@ void PipeWrap::Initialize(Local<Object> target,
   Local<FunctionTemplate> t = env->NewFunctionTemplate(New);
   Local<String> pipeString = FIXED_ONE_BYTE_STRING(env->isolate(), "Pipe");
   t->SetClassName(pipeString);
-  t->InstanceTemplate()->SetInternalFieldCount(1);
+  t->InstanceTemplate()
+    ->SetInternalFieldCount(StreamBase::kStreamBaseFieldCount);
 
   t->Inherit(LibuvStreamWrap::GetConstructorTemplate(env));
 
@@ -91,7 +91,7 @@ void PipeWrap::Initialize(Local<Object> target,
 
   target->Set(env->context(),
               pipeString,
-              t->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              t->GetFunction(env->context()).ToLocalChecked()).Check();
   env->set_pipe_constructor_template(t);
 
   // Create FunctionTemplate for PipeConnectWrap.
@@ -102,7 +102,7 @@ void PipeWrap::Initialize(Local<Object> target,
   cwt->SetClassName(wrapString);
   target->Set(env->context(),
               wrapString,
-              cwt->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              cwt->GetFunction(env->context()).ToLocalChecked()).Check();
 
   // Define constants
   Local<Object> constants = Object::New(env->isolate());
@@ -113,7 +113,7 @@ void PipeWrap::Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, UV_WRITABLE);
   target->Set(context,
               env->constants_string(),
-              constants).FromJust();
+              constants).Check();
 }
 
 
@@ -217,8 +217,9 @@ void PipeWrap::Open(const FunctionCallbackInfo<Value>& args) {
   int err = uv_pipe_open(&wrap->handle_, fd);
   wrap->set_fd(fd);
 
+  Isolate* isolate = env->isolate();
   if (err != 0)
-    env->isolate()->ThrowException(UVException(err, "uv_pipe_open"));
+    isolate->ThrowException(UVException(isolate, err, "uv_pipe_open"));
 }
 
 

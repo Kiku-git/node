@@ -49,8 +49,10 @@ assert.strictEqual(handler, details[1]);
 
 assert.strictEqual(
   util.inspect(proxyObj, opts),
-  'Proxy [ [ 1, 2, 3 ],\n' +
-  '  { getPrototypeOf: [Function: getPrototypeOf],\n' +
+  'Proxy [\n' +
+  '  [ 1, 2, 3 ],\n' +
+  '  {\n' +
+  '    getPrototypeOf: [Function: getPrototypeOf],\n' +
   '    setPrototypeOf: [Function: setPrototypeOf],\n' +
   '    isExtensible: [Function: isExtensible],\n' +
   '    preventExtensions: [Function: preventExtensions],\n' +
@@ -62,7 +64,9 @@ assert.strictEqual(
   '    deleteProperty: [Function: deleteProperty],\n' +
   '    ownKeys: [Function: ownKeys],\n' +
   '    apply: [Function: apply],\n' +
-  '    construct: [Function: construct] } ]'
+  '    construct: [Function: construct]\n' +
+  '  }\n' +
+  ']'
 );
 
 // Using getProxyDetails with non-proxy returns undefined
@@ -86,13 +90,20 @@ const expected1 = 'Proxy [ {}, {} ]';
 const expected2 = 'Proxy [ Proxy [ {}, {} ], {} ]';
 const expected3 = 'Proxy [ Proxy [ Proxy [ {}, {} ], {} ], Proxy [ {}, {} ] ]';
 const expected4 = 'Proxy [ Proxy [ {}, {} ], Proxy [ Proxy [ {}, {} ], {} ] ]';
-const expected5 = 'Proxy [ Proxy [ Proxy [ Proxy [Array], {} ],' +
-                  ' Proxy [ {}, {} ] ],\n  Proxy [ Proxy [ {}, {} ]' +
-                  ', Proxy [ Proxy [Array], {} ] ] ]';
-const expected6 = 'Proxy [ Proxy [ Proxy [ Proxy [Array], Proxy [Array]' +
-                  ' ],\n    Proxy [ Proxy [Array], Proxy [Array] ] ],\n' +
-                  '  Proxy [ Proxy [ Proxy [Array], Proxy [Array] ],\n' +
-                  '    Proxy [ Proxy [Array], Proxy [Array] ] ] ]';
+const expected5 = 'Proxy [\n  ' +
+                  'Proxy [ Proxy [ Proxy [Array], {} ], Proxy [ {}, {} ] ],\n' +
+                  '  Proxy [ Proxy [ {}, {} ], Proxy [ Proxy [Array], {} ] ]' +
+                  '\n]';
+const expected6 = 'Proxy [\n' +
+                  '  Proxy [\n' +
+                  '    Proxy [ Proxy [Array], Proxy [Array] ],\n' +
+                  '    Proxy [ Proxy [Array], Proxy [Array] ]\n' +
+                  '  ],\n' +
+                  '  Proxy [\n' +
+                  '    Proxy [ Proxy [Array], Proxy [Array] ],\n' +
+                  '    Proxy [ Proxy [Array], Proxy [Array] ]\n' +
+                  '  ]\n' +
+                  ']';
 assert.strictEqual(
   util.inspect(proxy1, { showProxy: true, depth: null }),
   expected1);
@@ -133,7 +144,7 @@ const proxy11 = new Proxy(() => {}, {
     return proxy11;
   }
 });
-const expected10 = '[Function]';
-const expected11 = '[Function]';
+const expected10 = '[Function (anonymous)]';
+const expected11 = '[Function (anonymous)]';
 assert.strictEqual(util.inspect(proxy10), expected10);
 assert.strictEqual(util.inspect(proxy11), expected11);

@@ -2,7 +2,7 @@
 const common = require('../../common');
 const assert = require('assert');
 
-// testing api calls for string
+// Testing api calls for string
 const test_string = require(`./build/${common.buildType}/test_string`);
 
 const empty = '';
@@ -72,4 +72,12 @@ assert.strictEqual(test_string.Utf8Length(str6), 14);
 
 assert.throws(() => {
   test_string.TestLargeUtf8();
+}, /^Error: Invalid argument$/);
+
+assert.throws(() => {
+  test_string.TestLargeLatin1();
+}, /^Error: Invalid argument$/);
+
+assert.throws(() => {
+  test_string.TestLargeUtf16();
 }, /^Error: Invalid argument$/);

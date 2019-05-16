@@ -256,8 +256,8 @@ function writeOneMillionTimes(writer, data, encoding, callback) {
         // last time!
         writer.write(data, encoding, callback);
       } else {
-        // see if we should continue, or wait
-        // don't pass the callback, because we're not done yet.
+        // See if we should continue, or wait.
+        // Don't pass the callback, because we're not done yet.
         ok = writer.write(data, encoding);
       }
     } while (i > 0 && ok);
@@ -372,10 +372,10 @@ added: v8.0.0
 * `error` {Error} Optional, an error to emit with `'error'` event.
 * Returns: {this}
 
-Destroy the stream. Optionally emit an `'error'` event, and always emit
-a `'close'` event.
-After this call, the writable stream has ended and subsequent calls
-to `write()` or `end()` will result in an `ERR_STREAM_DESTROYED` error.
+Destroy the stream. Optionally emit an `'error'` event, and emit a `'close'`
+event unless `emitClose` is set in `false`. After this call, the writable
+stream has ended and subsequent calls to `write()` or `end()` will result in
+an `ERR_STREAM_DESTROYED` error.
 This is a destructive and immediate way to destroy a stream. Previous calls to
 `write()` may not have drained, and may trigger an `ERR_STREAM_DESTROYED` error.
 Use `end()` instead of destroy if data should flush before close, or wait for
@@ -418,7 +418,7 @@ const fs = require('fs');
 const file = fs.createWriteStream('example.txt');
 file.write('hello, ');
 file.end('world!');
-// writing more now is not allowed!
+// Writing more now is not allowed!
 ```
 
 ##### writable.setDefaultEncoding(encoding)
@@ -481,7 +481,7 @@ added: v11.4.0
 
 * {boolean}
 
-Is `true` if it is safe to call [`writable.write()`][].
+Is `true` if it is safe to call [`writable.write()`][stream-write].
 
 ##### writable.writableHighWaterMark
 <!-- YAML
@@ -683,7 +683,7 @@ pass.unpipe(writable);
 // readableFlowing is now false
 
 pass.on('data', (chunk) => { console.log(chunk.toString()); });
-pass.write('ok');  // will not emit 'data'
+pass.write('ok');  // Will not emit 'data'
 pass.resume();     // Must be called to make stream emit 'data'
 ```
 
@@ -799,6 +799,14 @@ to push an invalid chunk of data.
 
 The listener callback will be passed a single `Error` object.
 
+##### Event: 'pause'
+<!-- YAML
+added: v0.9.4
+-->
+
+The `'pause'` event is emitted when [`stream.pause()`][stream-pause] is called
+and `readableFlowing` is not `false`.
+
 ##### Event: 'readable'
 <!-- YAML
 added: v0.9.4
@@ -819,7 +827,7 @@ cause some amount of data to be read into an internal buffer.
 ```javascript
 const readable = getReadableStreamSomehow();
 readable.on('readable', function() {
-  // there is some data to read now
+  // There is some data to read now
   let data;
 
   while (data = this.read()) {
@@ -868,6 +876,14 @@ If there are `'data'` listeners when `'readable'` is removed, the stream
 will start flowing, i.e. `'data'` events will be emitted without calling
 `.resume()`.
 
+##### Event: 'resume'
+<!-- YAML
+added: v0.9.4
+-->
+
+The `'resume'` event is emitted when [`stream.resume()`][stream-resume] is
+called and `readableFlowing` is not `true`.
+
 ##### readable.destroy([error])
 <!-- YAML
 added: v8.0.0
@@ -876,9 +892,10 @@ added: v8.0.0
 * `error` {Error} Error which will be passed as payload in `'error'` event
 * Returns: {this}
 
-Destroy the stream, and emit `'error'` and `'close'`. After this call, the
-readable stream will release any internal resources and subsequent calls
-to `push()` will be ignored.
+Destroy the stream. Optionally emit an `'error'` event, and emit a `'close'`
+event unless `emitClose` is set in `false`. After this call, the readable
+stream will release any internal resources and subsequent calls to `push()`
+will be ignored.
 Implementors should not override this method, but instead implement
 [`readable._destroy()`][readable-_destroy].
 
@@ -1049,7 +1066,7 @@ added: v11.4.0
 
 * {boolean}
 
-Is `true` if it is safe to call [`readable.read()`][].
+Is `true` if it is safe to call [`readable.read()`][stream-read].
 
 ##### readable.readableHighWaterMark
 <!-- YAML
@@ -1205,7 +1222,7 @@ function parseHeader(stream, callback) {
     while (null !== (chunk = stream.read())) {
       const str = decoder.write(chunk);
       if (str.match(/\n\n/)) {
-        // found the header boundary
+        // Found the header boundary
         const split = str.split(/\n\n/);
         header += split.shift();
         const remaining = split.join('\n\n');
@@ -1218,7 +1235,7 @@ function parseHeader(stream, callback) {
         // Now the body of the message can be read from the stream.
         callback(null, header, stream);
       } else {
-        // still reading the header.
+        // Still reading the header.
         header += str;
       }
     }
@@ -1269,9 +1286,13 @@ myReader.on('readable', () => {
 ##### readable\[Symbol.asyncIterator\]()
 <!-- YAML
 added: v10.0.0
+changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26989
+    description: Symbol.asyncIterator support is no longer experimental.
 -->
 
-> Stability: 1 - Experimental
+> Stability: 2 - Stable
 
 * Returns: {AsyncIterator} to fully consume the stream.
 
@@ -1342,11 +1363,12 @@ added: v8.0.0
 -->
 * `error` {Error}
 
-Destroy the stream, and emit `'error'`. After this call, the
+Destroy the stream, and optionally emit an `'error'` event. After this call, the
 transform stream would release any internal resources.
 Implementors should not override this method, but instead implement
 [`readable._destroy()`][readable-_destroy].
-The default implementation of `_destroy()` for `Transform` also emit `'close'`.
+The default implementation of `_destroy()` for `Transform` also emit `'close'`
+unless `emitClose` is set in false.
 
 ### stream.finished(stream[, options], callback)
 <!-- YAML
@@ -2431,7 +2453,7 @@ net.createServer((socket) => {
     socket.end('The message was received but was not processed.\n');
   });
 
-  // start the flow of data, discarding it.
+  // Start the flow of data, discarding it.
   socket.resume();
 }).listen(1337);
 ```

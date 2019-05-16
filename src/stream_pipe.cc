@@ -1,9 +1,9 @@
 #include "stream_pipe.h"
 #include "stream_base-inl.h"
 #include "node_buffer.h"
+#include "util-inl.h"
 
 using v8::Context;
-using v8::External;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
@@ -32,13 +32,13 @@ StreamPipe::StreamPipe(StreamBase* source,
   // if that applies to the given streams (for example, Http2Streams use
   // weak references).
   obj->Set(env()->context(), env()->source_string(), source->GetObject())
-      .FromJust();
+      .Check();
   source->GetObject()->Set(env()->context(), env()->pipe_target_string(), obj)
-      .FromJust();
+      .Check();
   obj->Set(env()->context(), env()->sink_string(), sink->GetObject())
-      .FromJust();
+      .Check();
   sink->GetObject()->Set(env()->context(), env()->pipe_source_string(), obj)
-      .FromJust();
+      .Check();
 }
 
 StreamPipe::~StreamPipe() {
@@ -226,10 +226,10 @@ void StreamPipe::WritableListener::OnStreamRead(ssize_t nread,
 
 void StreamPipe::New(const FunctionCallbackInfo<Value>& args) {
   CHECK(args.IsConstructCall());
-  CHECK(args[0]->IsExternal());
-  CHECK(args[1]->IsExternal());
-  auto source = static_cast<StreamBase*>(args[0].As<External>()->Value());
-  auto sink = static_cast<StreamBase*>(args[1].As<External>()->Value());
+  CHECK(args[0]->IsObject());
+  CHECK(args[1]->IsObject());
+  StreamBase* source = StreamBase::FromObject(args[0].As<Object>());
+  StreamBase* sink = StreamBase::FromObject(args[1].As<Object>());
 
   new StreamPipe(source, sink, args.This());
 }
@@ -268,7 +268,7 @@ void InitializeStreamPipe(Local<Object> target,
   target
       ->Set(context, stream_pipe_string,
             pipe->GetFunction(context).ToLocalChecked())
-      .FromJust();
+      .Check();
 }
 
 }  // anonymous namespace

@@ -55,10 +55,6 @@ enum nghttp2_session_type {
   NGHTTP2_SESSION_CLIENT
 };
 
-enum nghttp2_shutdown_flags {
-  NGHTTP2_SHUTDOWN_FLAG_GRACEFUL
-};
-
 enum nghttp2_stream_flags {
   NGHTTP2_STREAM_FLAG_NONE = 0x0,
   // Writable side has ended
@@ -696,7 +692,7 @@ class Http2Session : public AsyncWrap, public StreamListener {
 
   void Close(uint32_t code = NGHTTP2_NO_ERROR,
              bool socket_closed = false);
-  void Consume(Local<External> external);
+  void Consume(Local<Object> stream);
   void Goaway(uint32_t code, int32_t lastStreamID,
               const uint8_t* data, size_t len);
   void AltSvc(int32_t id,
@@ -1212,7 +1208,7 @@ class ExternalHeader :
 class Headers {
  public:
   Headers(Isolate* isolate, Local<Context> context, Local<Array> headers);
-  ~Headers() {}
+  ~Headers() = default;
 
   nghttp2_nv* operator*() {
     return reinterpret_cast<nghttp2_nv*>(*buf_);
@@ -1233,7 +1229,7 @@ class Origins {
           Local<Context> context,
           Local<v8::String> origin_string,
           size_t origin_count);
-  ~Origins() {}
+  ~Origins() = default;
 
   nghttp2_origin_entry* operator*() {
     return reinterpret_cast<nghttp2_origin_entry*>(*buf_);

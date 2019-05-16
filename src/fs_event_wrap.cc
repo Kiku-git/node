@@ -65,7 +65,7 @@ class FSEventWrap: public HandleWrap {
   static const encoding kDefaultEncoding = UTF8;
 
   FSEventWrap(Environment* env, Local<Object> object);
-  ~FSEventWrap() override;
+  ~FSEventWrap() = default;
 
   static void OnEvent(uv_fs_event_t* handle, const char* filename, int events,
     int status);
@@ -83,9 +83,6 @@ FSEventWrap::FSEventWrap(Environment* env, Local<Object> object)
   MarkAsUninitialized();
 }
 
-
-FSEventWrap::~FSEventWrap() {
-}
 
 void FSEventWrap::GetInitialized(const FunctionCallbackInfo<Value>& args) {
   FSEventWrap* wrap = Unwrap<FSEventWrap>(args.This());
@@ -118,11 +115,11 @@ void FSEventWrap::Initialize(Local<Object> target,
       FIXED_ONE_BYTE_STRING(env->isolate(), "initialized"),
       get_initialized_templ,
       Local<FunctionTemplate>(),
-      static_cast<PropertyAttribute>(ReadOnly | DontDelete | v8::DontEnum));
+      static_cast<PropertyAttribute>(ReadOnly | DontDelete | DontEnum));
 
   target->Set(env->context(),
               fsevent_string,
-              t->GetFunction(context).ToLocalChecked()).FromJust();
+              t->GetFunction(context).ToLocalChecked()).Check();
 }
 
 

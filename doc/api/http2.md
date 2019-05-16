@@ -572,12 +572,17 @@ Provides miscellaneous information about the current state of the
 
 An object describing the current status of this `Http2Session`.
 
-#### http2session.settings(settings)
+#### http2session.settings([settings][, callback])
 <!-- YAML
 added: v8.4.0
 -->
 
 * `settings` {HTTP/2 Settings Object}
+* `callback` {Function} Callback that is called once the session is connected or
+  right away if the session is already connected.
+  * `err` {Error|null}
+  * `settings` {HTTP/2 Settings Object} The updated `settings` object.
+  * `duration` {integer}
 
 Updates the current local settings for this `Http2Session` and sends a new
 `SETTINGS` frame to the connected HTTP/2 peer.
@@ -1602,7 +1607,7 @@ default behavior is to destroy the stream.
 
 When the `options.waitForTrailers` option is set, the `'wantTrailers'` event
 will be emitted immediately after queuing the last chunk of payload data to be
-sent. The `http2stream.sendTrilers()` method can then be used to sent trailing
+sent. The `http2stream.sendTrailers()` method can then be used to sent trailing
 header fields to the peer.
 
 When `options.waitForTrailers` is set, the `Http2Stream` will not automatically
@@ -1717,11 +1722,15 @@ server.on('stream', (stream, headers, flags) => {
 #### Event: 'timeout'
 <!-- YAML
 added: v8.4.0
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/27558
+    description: The default timeout changed from 120s to 0 (no timeout).
 -->
 
 The `'timeout'` event is emitted when there is no activity on the Server for
 a given number of milliseconds set using `http2server.setTimeout()`.
-**Default:** 2 minutes.
+**Default:** 0 (no timeout)
 
 #### server.close([callback])
 <!-- YAML
@@ -1738,9 +1747,13 @@ consider also using [`http2session.close()`] on active sessions.
 #### server.setTimeout([msecs][, callback])
 <!-- YAML
 added: v8.4.0
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/27558
+    description: The default timeout changed from 120s to 0 (no timeout).
 -->
 
-* `msecs` {number} **Default:** `120000` (2 minutes)
+* `msecs` {number} **Default:** 0 (no timeout)
 * `callback` {Function}
 * Returns: {Http2Server}
 
@@ -2232,7 +2245,7 @@ Returns an object containing the default settings for an `Http2Session`
 instance. This method returns a new object instance every time it is called
 so instances returned may be safely modified for use.
 
-### http2.getPackedSettings(settings)
+### http2.getPackedSettings([settings])
 <!-- YAML
 added: v8.4.0
 -->
@@ -2432,7 +2445,7 @@ const client = http2.connect('http://localhost');
 
 client.on('stream', (pushedStream, requestHeaders) => {
   pushedStream.on('push', (responseHeaders) => {
-    // process response headers
+    // Process response headers
   });
   pushedStream.on('data', (chunk) => { /* handle pushed data */ });
 });
@@ -3138,7 +3151,7 @@ with any headers passed to [`response.writeHead()`][], with the headers passed
 to [`response.writeHead()`][] given precedence.
 
 ```js
-// returns content-type = text/plain
+// Returns content-type = text/plain
 const server = http2.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('X-Foo', 'bar');
@@ -3223,7 +3236,7 @@ added: v8.4.0
 
 * {string}
 
-Status message is not supported by HTTP/2 (RFC7540 8.1.2.4). It returns
+Status message is not supported by HTTP/2 (RFC 7540 8.1.2.4). It returns
 an empty string.
 
 #### response.stream
@@ -3332,7 +3345,7 @@ with any headers passed to [`response.writeHead()`][], with the headers passed
 to [`response.writeHead()`][] given precedence.
 
 ```js
-// returns content-type = text/plain
+// Returns content-type = text/plain
 const server = http2.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('X-Foo', 'bar');

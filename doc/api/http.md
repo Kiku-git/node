@@ -358,7 +358,7 @@ const proxy = http.createServer((req, res) => {
   res.end('okay');
 });
 proxy.on('connect', (req, cltSocket, head) => {
-  // connect to an origin server
+  // Connect to an origin server
   const srvUrl = url.parse(`http://${req.url}`);
   const srvSocket = net.connect(srvUrl.port, srvUrl.hostname, () => {
     cltSocket.write('HTTP/1.1 200 Connection Established\r\n' +
@@ -370,10 +370,10 @@ proxy.on('connect', (req, cltSocket, head) => {
   });
 });
 
-// now that proxy is running
+// Now that proxy is running
 proxy.listen(1337, '127.0.0.1', () => {
 
-  // make a request to a tunneling proxy
+  // Make a request to a tunneling proxy
   const options = {
     port: 1337,
     host: '127.0.0.1',
@@ -387,7 +387,7 @@ proxy.listen(1337, '127.0.0.1', () => {
   req.on('connect', (res, socket, head) => {
     console.log('got connected!');
 
-    // make a request over an HTTP tunnel
+    // Make a request over an HTTP tunnel
     socket.write('GET / HTTP/1.1\r\n' +
                  'Host: www.google.com:80\r\n' +
                  'Connection: close\r\n' +
@@ -416,8 +416,11 @@ the client should send the request body.
 added: v10.0.0
 -->
 
-Emitted when the server sends a 1xx response (excluding 101 Upgrade). This
-event is emitted with a callback containing an object with a status code.
+* `info` {Object}
+  * `statusCode` {integer}
+
+Emitted when the server sends a 1xx response (excluding 101 Upgrade). The
+listeners of this event will receive an object containing the status code.
 
 ```js
 const http = require('http');
@@ -432,8 +435,8 @@ const options = {
 const req = http.request(options);
 req.end();
 
-req.on('information', (res) => {
-  console.log(`Got information prior to main response: ${res.statusCode}`);
+req.on('information', (info) => {
+  console.log(`Got information prior to main response: ${info.statusCode}`);
 });
 ```
 
@@ -504,7 +507,7 @@ srv.on('upgrade', (req, socket, head) => {
   socket.pipe(socket); // echo back
 });
 
-// now that server is running
+// Now that server is running
 srv.listen(1337, '127.0.0.1', () => {
 
   // make a request
@@ -626,11 +629,11 @@ request.setHeader('content-type', 'text/html');
 request.setHeader('Content-Length', Buffer.byteLength(body));
 request.setHeader('Cookie', ['type=ninja', 'language=javascript']);
 const contentType = request.getHeader('Content-Type');
-// contentType is 'text/html'
+// 'contentType' is 'text/html'
 const contentLength = request.getHeader('Content-Length');
-// contentLength is of type number
+// 'contentLength' is of type number
 const cookie = request.getHeader('Cookie');
-// cookie is of type string[]
+// 'cookie' is of type string[]
 ```
 
 ### request.maxHeadersCount
@@ -745,7 +748,7 @@ req.once('response', (res) => {
   const ip = req.socket.localAddress;
   const port = req.socket.localPort;
   console.log(`Your IP address is ${ip} and your source port is ${port}.`);
-  // consume response object
+  // Consume response object
 });
 ```
 
@@ -835,7 +838,7 @@ changes:
     description: The `rawPacket` is the current buffer that just parsed. Adding
                  this buffer to the error object of `'clientError'` event is to
                  make it possible that developers can log the broken packet.
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25605
     description: The default behavior will return a 431 Request Header
                  Fields Too Large if a HPE_HEADER_OVERFLOW error occurs.
@@ -1010,9 +1013,13 @@ Limits maximum incoming headers count. If set to 0, no limit will be applied.
 ### server.setTimeout([msecs][, callback])
 <!-- YAML
 added: v0.9.12
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/27558
+    description: The default timeout changed from 120s to 0 (no timeout).
 -->
 
-* `msecs` {number} **Default:** `120000` (2 minutes)
+* `msecs` {number} **Default:** 0 (no timeout)
 * `callback` {Function}
 * Returns: {http.Server}
 
@@ -1023,16 +1030,20 @@ occurs.
 If there is a `'timeout'` event listener on the Server object, then it
 will be called with the timed-out socket as an argument.
 
-By default, the Server's timeout value is 2 minutes, and sockets are
-destroyed automatically if they time out. However, if a callback is assigned
-to the Server's `'timeout'` event, timeouts must be handled explicitly.
+By default, the Server does not timeout sockets. However, if a callback
+is assigned to the Server's `'timeout'` event, timeouts must be handled
+explicitly.
 
 ### server.timeout
 <!-- YAML
 added: v0.9.12
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/27558
+    description: The default timeout changed from 120s to 0 (no timeout).
 -->
 
-* {number} Timeout in milliseconds. **Default:** `120000` (2 minutes).
+* {number} Timeout in milliseconds. **Default:** 0 (no timeout)
 
 The number of milliseconds of inactivity before a socket is presumed
 to have timed out.
@@ -1146,7 +1157,7 @@ This method signals to the server that all of the response headers and body
 have been sent; that server should consider this message complete.
 The method, `response.end()`, MUST be called on each response.
 
-If `data` is specified, it is equivalent to calling
+If `data` is specified, it is similar in effect to calling
 [`response.write(data, encoding)`][] followed by `response.end(callback)`.
 
 If `callback` is specified, it will be called when the response stream
@@ -1313,7 +1324,7 @@ with any headers passed to [`response.writeHead()`][], with the headers passed
 to [`response.writeHead()`][] given precedence.
 
 ```js
-// returns content-type = text/plain
+// Returns content-type = text/plain
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('X-Foo', 'bar');
@@ -1506,7 +1517,7 @@ desired with potential future retrieval and modification, use
 [`response.setHeader()`][] instead.
 
 ```js
-// returns content-type = text/plain
+// Returns content-type = text/plain
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('X-Foo', 'bar');
@@ -1851,7 +1862,7 @@ Found'`.
 <!-- YAML
 added: v0.1.13
 changes:
-  - version: v9.6.0
+  - version: v9.6.0, v8.12.0
     pr-url: https://github.com/nodejs/node/pull/15752
     description: The `options` argument is supported now.
 -->
@@ -1918,7 +1929,7 @@ http.get('http://nodejs.org/dist/index.json', (res) => {
   }
   if (error) {
     console.error(error.message);
-    // consume response data to free up memory
+    // Consume response data to free up memory
     res.resume();
     return;
   }
@@ -2065,7 +2076,7 @@ req.on('error', (e) => {
   console.error(`problem with request: ${e.message}`);
 });
 
-// write data to request body
+// Write data to request body
 req.write(postData);
 req.end();
 ```
@@ -2088,7 +2099,7 @@ There are a few special headers that should be noted.
 
 * Sending an 'Expect' header will immediately send the request headers.
   Usually, when sending 'Expect: 100-continue', both a timeout and a listener
-  for the `'continue'` event should be set. See RFC2616 Section 8.2.3 for more
+  for the `'continue'` event should be set. See RFC 2616 Section 8.2.3 for more
   information.
 
 * Sending an Authorization header will override using the `auth` option

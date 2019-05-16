@@ -32,10 +32,10 @@ const message = 'Read, Eval, Print Loop';
 const prompt_unix = 'node via Unix socket> ';
 const prompt_tcp = 'node via TCP socket> ';
 
-// absolute path to test/fixtures/a.js
+// Absolute path to test/fixtures/a.js
 const moduleFilename = fixtures.path('a');
 
-// function for REPL to run
+// Function for REPL to run
 global.invoke_me = function(arg) {
   return `invoked ${arg}`;
 };
@@ -308,7 +308,7 @@ const errorTests = [
   // Functions should not evaluate twice (#2773)
   {
     send: 'var I = [1,2,3,function() {}]; I.pop()',
-    expect: '[Function]'
+    expect: '[Function (anonymous)]'
   },
   // Multiline object
   {
@@ -328,6 +328,21 @@ const errorTests = [
     send: '1 }',
     expect: '{ a: 1 }'
   },
+  // Multiline class with private member.
+  {
+    send: 'class Foo { #private = true ',
+    expect: '... '
+  },
+  // Class field with bigint.
+  {
+    send: 'num = 123456789n',
+    expect: '... '
+  },
+  // Static class features.
+  {
+    send: 'static foo = "bar" }',
+    expect: 'undefined'
+  },
   // Multiline anonymous function with comment
   {
     send: '(function() {',
@@ -338,12 +353,12 @@ const errorTests = [
     expect: '... '
   },
   {
-    send: 'return 1;',
+    send: 'return 1n;',
     expect: '... '
   },
   {
     send: '})()',
-    expect: '1'
+    expect: '1n'
   },
   // Multiline function call
   {
@@ -358,7 +373,7 @@ const errorTests = [
     send: ')',
     expect: 'undefined'
   },
-  // npm prompt error message
+  // `npm` prompt error message.
   {
     send: 'npm install foobar',
     expect: [
@@ -534,13 +549,16 @@ const errorTests = [
     send: 'require("internal/repl")',
     expect: [
       'Thrown:',
-      /^{ Error: Cannot find module 'internal\/repl'/,
+      /^Error: Cannot find module 'internal\/repl'/,
       /^Require stack:/,
       /^- <repl>/,
       /^    at .*/,
       /^    at .*/,
       /^    at .*/,
-      /^    at .*/
+      /^    at .*/,
+      "  code: 'MODULE_NOT_FOUND',",
+      "  requireStack: [ '<repl>' ]",
+      '}'
     ]
   },
   // REPL should handle quotes within regexp literal in multiline mode
@@ -676,7 +694,7 @@ const errorTests = [
       /^SyntaxError: /
     ]
   },
-  // bring back the repl to prompt
+  // Bring back the repl to prompt
   {
     send: '.break',
     expect: ''

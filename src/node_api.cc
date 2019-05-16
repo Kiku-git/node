@@ -6,6 +6,9 @@
 #include "node_binding.h"
 #include "node_errors.h"
 #include "node_internals.h"
+#include "util-inl.h"
+
+#include <memory>
 
 struct node_napi_env__ : public napi_env__ {
   explicit node_napi_env__(v8::Local<v8::Context> context):
@@ -220,9 +223,9 @@ class ThreadSafeFunction : public node::AsyncResource {
 
     if (uv_async_init(loop, &async, AsyncCb) == 0) {
       if (max_queue_size > 0) {
-        cond.reset(new node::ConditionVariable);
+        cond = std::make_unique<node::ConditionVariable>();
       }
-      if ((max_queue_size == 0 || cond.get() != nullptr) &&
+      if ((max_queue_size == 0 || cond) &&
           uv_idle_init(loop, &idle) == 0) {
         return napi_ok;
       }
@@ -630,10 +633,11 @@ napi_status napi_async_destroy(napi_env env,
   CHECK_ENV(env);
   CHECK_ARG(env, async_context);
 
-  v8::Isolate* isolate = env->isolate;
   node::async_context* node_async_context =
       reinterpret_cast<node::async_context*>(async_context);
-  node::EmitAsyncDestroy(isolate, *node_async_context);
+  node::EmitAsyncDestroy(
+      reinterpret_cast<node_napi_env>(env)->node_env(),
+      *node_async_context);
 
   delete node_async_context;
 
@@ -809,15 +813,15 @@ namespace uvimpl {
 
 static napi_status ConvertUVErrorCode(int code) {
   switch (code) {
-  case 0:
-    return napi_ok;
-  case UV_EINVAL:
-    return napi_invalid_arg;
-  case UV_ECANCELED:
-    return napi_cancelled;
+    case 0:
+      return napi_ok;
+    case UV_EINVAL:
+      return napi_invalid_arg;
+    case UV_ECANCELED:
+      return napi_cancelled;
+    default:
+      return napi_generic_failure;
   }
-
-  return napi_generic_failure;
 }
 
 // Wrapper around uv_work_t which calls user-provided callbacks.
@@ -839,7 +843,7 @@ class Work : public node::AsyncResource, public node::ThreadPoolWork {
       _complete(complete) {
   }
 
-  ~Work() override { }
+  ~Work() override = default;
 
  public:
   static Work* New(node_napi_env env,

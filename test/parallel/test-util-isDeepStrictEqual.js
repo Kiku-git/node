@@ -221,7 +221,7 @@ notUtilIsDeepStrict(
   new Map([['1', 5], [0, 5], ['0', 5]])
 );
 
-// undefined value in Map
+// Undefined value in Map
 utilIsDeepStrict(
   new Map([[1, undefined]]),
   new Map([[1, undefined]])
@@ -350,7 +350,7 @@ notUtilIsDeepStrict(
 
   m2.set(2, 'hi'); // different order
   m2.set(1, obj);
-  m2.set(3, [1, 2, 3]); // deep equal, but not reference equal.
+  m2.set(3, [1, 2, 3]); // Deep equal, but not reference equal.
 
   utilIsDeepStrict(m1, m2);
 }

@@ -1,5 +1,6 @@
 #include "node_internals.h"
 #include "node_report.h"
+#include "util-inl.h"
 
 namespace report {
 
@@ -66,11 +67,17 @@ static void ReportEndpoints(uv_handle_t* h, JSONWriter* writer) {
   }
   ReportEndpoint(h, rc == 0 ? addr : nullptr,  "localEndpoint", writer);
 
-  if (h->type == UV_TCP) {
-    // Get the remote end of the connection.
-    rc = uv_tcp_getpeername(&handle->tcp, addr, &addr_size);
-    ReportEndpoint(h, rc == 0 ? addr : nullptr, "remoteEndpoint", writer);
+  switch (h->type) {
+    case UV_UDP:
+      rc = uv_udp_getpeername(&handle->udp, addr, &addr_size);
+      break;
+    case UV_TCP:
+      rc = uv_tcp_getpeername(&handle->tcp, addr, &addr_size);
+      break;
+    default:
+      break;
   }
+  ReportEndpoint(h, rc == 0 ? addr : nullptr, "remoteEndpoint", writer);
 }
 
 // Utility function to format libuv path information.
@@ -120,6 +127,11 @@ void WalkHandle(uv_handle_t* h, void* arg) {
   uv_any_handle* handle = reinterpret_cast<uv_any_handle*>(h);
 
   writer->json_start();
+  writer->json_keyvalue("type", type);
+  writer->json_keyvalue("is_active", static_cast<bool>(uv_is_active(h)));
+  writer->json_keyvalue("is_referenced", static_cast<bool>(uv_has_ref(h)));
+  writer->json_keyvalue("address",
+                        ValueToHexString(reinterpret_cast<uint64_t>(h)));
 
   switch (h->type) {
     case UV_FS_EVENT:
@@ -186,14 +198,16 @@ void WalkHandle(uv_handle_t* h, void* arg) {
     if (rc == 0) {
       writer->json_keyvalue("fd", static_cast<int>(fd_v));
       switch (fd_v) {
-        case 0:
+        case STDIN_FILENO:
           writer->json_keyvalue("stdio", "stdin");
           break;
-        case 1:
+        case STDOUT_FILENO:
           writer->json_keyvalue("stdio", "stdout");
           break;
-        case 2:
+        case STDERR_FILENO:
           writer->json_keyvalue("stdio", "stderr");
+          break;
+        default:
           break;
       }
     }
@@ -208,11 +222,6 @@ void WalkHandle(uv_handle_t* h, void* arg) {
                           static_cast<bool>(uv_is_writable(&handle->stream)));
   }
 
-  writer->json_keyvalue("type", type);
-  writer->json_keyvalue("is_active", static_cast<bool>(uv_is_active(h)));
-  writer->json_keyvalue("is_referenced", static_cast<bool>(uv_has_ref(h)));
-  writer->json_keyvalue("address",
-                        ValueToHexString(reinterpret_cast<uint64_t>(h)));
   writer->json_end();
 }
 
@@ -225,7 +234,7 @@ std::string EscapeJsonChars(const std::string& str) {
       "\\u001a", "\\u001b", "\\u001c", "\\u001d", "\\u001e", "\\u001f"
   };
 
-  std::string ret = "";
+  std::string ret;
   size_t last_pos = 0;
   size_t pos = 0;
   for (; pos < str.size(); ++pos) {

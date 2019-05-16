@@ -58,17 +58,17 @@ Local<Value> ErrnoException(Isolate* isolate,
   Local<Object> obj = e.As<Object>();
   obj->Set(env->context(),
            env->errno_string(),
-           Integer::New(isolate, errorno)).FromJust();
-  obj->Set(env->context(), env->code_string(), estring).FromJust();
+           Integer::New(isolate, errorno)).Check();
+  obj->Set(env->context(), env->code_string(), estring).Check();
 
   if (path_string.IsEmpty() == false) {
-    obj->Set(env->context(), env->path_string(), path_string).FromJust();
+    obj->Set(env->context(), env->path_string(), path_string).Check();
   }
 
   if (syscall != nullptr) {
     obj->Set(env->context(),
              env->syscall_string(),
-             OneByteString(isolate, syscall)).FromJust();
+             OneByteString(isolate, syscall)).Check();
   }
 
   return e;
@@ -144,13 +144,13 @@ Local<Value> UVException(Isolate* isolate,
 
   e->Set(env->context(),
          env->errno_string(),
-         Integer::New(isolate, errorno)).FromJust();
-  e->Set(env->context(), env->code_string(), js_code).FromJust();
-  e->Set(env->context(), env->syscall_string(), js_syscall).FromJust();
+         Integer::New(isolate, errorno)).Check();
+  e->Set(env->context(), env->code_string(), js_code).Check();
+  e->Set(env->context(), env->syscall_string(), js_syscall).Check();
   if (!js_path.IsEmpty())
-    e->Set(env->context(), env->path_string(), js_path).FromJust();
+    e->Set(env->context(), env->path_string(), js_path).Check();
   if (!js_dest.IsEmpty())
-    e->Set(env->context(), env->dest_string(), js_dest).FromJust();
+    e->Set(env->context(), env->dest_string(), js_dest).Check();
 
   return e;
 }
@@ -162,15 +162,21 @@ static const char* winapi_strerror(const int errorno, bool* must_free) {
   char* errmsg = nullptr;
 
   FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
-      FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, errorno,
-      MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&errmsg, 0, nullptr);
+                    FORMAT_MESSAGE_IGNORE_INSERTS,
+                nullptr,
+                errorno,
+                MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                reinterpret_cast<LPTSTR>(&errmsg),
+                0,
+                nullptr);
 
   if (errmsg) {
     *must_free = true;
 
     // Remove trailing newlines
     for (int i = strlen(errmsg) - 1;
-        i >= 0 && (errmsg[i] == '\n' || errmsg[i] == '\r'); i--) {
+         i >= 0 && (errmsg[i] == '\n' || errmsg[i] == '\r');
+         i--) {
       errmsg[i] = '\0';
     }
 
@@ -181,7 +187,6 @@ static const char* winapi_strerror(const int errorno, bool* must_free) {
     return "Unknown error";
   }
 }
-
 
 Local<Value> WinapiErrnoException(Isolate* isolate,
                                   int errorno,
@@ -213,20 +218,27 @@ Local<Value> WinapiErrnoException(Isolate* isolate,
   }
 
   Local<Object> obj = e.As<Object>();
-  obj->Set(env->errno_string(), Integer::New(isolate, errorno));
+  obj->Set(env->context(), env->errno_string(), Integer::New(isolate, errorno))
+      .Check();
 
   if (path != nullptr) {
-    obj->Set(env->path_string(),
+    obj->Set(env->context(),
+             env->path_string(),
              String::NewFromUtf8(isolate, path, NewStringType::kNormal)
-                 .ToLocalChecked());
+                 .ToLocalChecked())
+        .Check();
   }
 
   if (syscall != nullptr) {
-    obj->Set(env->syscall_string(), OneByteString(isolate, syscall));
+    obj->Set(env->context(),
+             env->syscall_string(),
+             OneByteString(isolate, syscall))
+        .Check();
   }
 
-  if (must_free)
-    LocalFree((HLOCAL)msg);
+  if (must_free) {
+    LocalFree(const_cast<char*>(msg));
+  }
 
   return e;
 }

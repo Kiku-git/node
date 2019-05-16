@@ -5,6 +5,7 @@
 #include "node_buffer.h"
 #include "node_errors.h"
 #include "stream_base-inl.h"
+#include "util-inl.h"
 #include "v8.h"
 
 namespace node {
@@ -27,6 +28,7 @@ JSStream::JSStream(Environment* env, Local<Object> obj)
     : AsyncWrap(env, obj, AsyncWrap::PROVIDER_JSSTREAM),
       StreamBase(env) {
   MakeWeak();
+  StreamBase::AttachToObject(obj);
 }
 
 
@@ -119,7 +121,7 @@ int JSStream::DoWrite(WriteWrap* w,
   Local<Object> buf;
   for (size_t i = 0; i < count; i++) {
     buf = Buffer::Copy(env(), bufs[i].base, bufs[i].len).ToLocalChecked();
-    bufs_arr->Set(env()->context(), i, buf).FromJust();
+    bufs_arr->Set(env()->context(), i, buf).Check();
   }
 
   Local<Value> argv[] = {
@@ -203,7 +205,8 @@ void JSStream::Initialize(Local<Object> target,
   Local<String> jsStreamString =
       FIXED_ONE_BYTE_STRING(env->isolate(), "JSStream");
   t->SetClassName(jsStreamString);
-  t->InstanceTemplate()->SetInternalFieldCount(1);
+  t->InstanceTemplate()
+    ->SetInternalFieldCount(StreamBase::kStreamBaseFieldCount);
   t->Inherit(AsyncWrap::GetConstructorTemplate(env));
 
   env->SetProtoMethod(t, "finishWrite", Finish<WriteWrap>);
@@ -211,10 +214,10 @@ void JSStream::Initialize(Local<Object> target,
   env->SetProtoMethod(t, "readBuffer", ReadBuffer);
   env->SetProtoMethod(t, "emitEOF", EmitEOF);
 
-  StreamBase::AddMethods<JSStream>(env, t);
+  StreamBase::AddMethods(env, t);
   target->Set(env->context(),
               jsStreamString,
-              t->GetFunction(context).ToLocalChecked()).FromJust();
+              t->GetFunction(context).ToLocalChecked()).Check();
 }
 
 }  // namespace node

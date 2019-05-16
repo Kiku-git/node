@@ -12,8 +12,15 @@ const tmpdir = require('../common/tmpdir');
 tmpdir.refresh();
 
 const printA = require.resolve('../fixtures/printA.js');
+const printSpaceA = require.resolve('../fixtures/print A.js');
+
+expect(` -r ${printA} `, 'A\nB\n');
 expect(`-r ${printA}`, 'A\nB\n');
+expect(`-r ${JSON.stringify(printA)}`, 'A\nB\n');
+expect(`-r ${JSON.stringify(printSpaceA)}`, 'A\nB\n');
 expect(`-r ${printA} -r ${printA}`, 'A\nB\n');
+expect(`   -r ${printA}    -r ${printA}`, 'A\nB\n');
+expect(`   --require ${printA}    --require ${printA}`, 'A\nB\n');
 expect('--no-deprecation', 'B\n');
 expect('--no-warnings', 'B\n');
 expect('--no_warnings', 'B\n');
@@ -32,6 +39,7 @@ expect('--trace-event-file-pattern {pid}-${rotation}.trace_events', 'B\n');
 // eslint-disable-next-line no-template-curly-in-string
 expect('--trace-event-file-pattern {pid}-${rotation}.trace_events ' +
        '--trace-event-categories node.async_hooks', 'B\n');
+expect('--unhandled-rejections=none', 'B\n');
 
 if (!common.isWindows) {
   expect('--perf-basic-prof', 'B\n');

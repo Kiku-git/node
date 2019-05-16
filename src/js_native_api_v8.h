@@ -1,7 +1,8 @@
 #ifndef SRC_JS_NATIVE_API_V8_H_
 #define SRC_JS_NATIVE_API_V8_H_
 
-#include <string.h>
+// This file needs to be compatible with C compilers.
+#include <string.h>  // NOLINT(modernize-deprecated-headers)
 #include "js_native_api_types.h"
 #include "js_native_api_v8_internals.h"
 
@@ -11,7 +12,7 @@ struct napi_env__ {
         context_persistent(isolate, context) {
     CHECK_EQ(isolate, context->GetIsolate());
   }
-  virtual ~napi_env__() {}
+  virtual ~napi_env__() = default;
   v8::Isolate* const isolate;  // Shortcut for context()->GetIsolate()
   v8impl::Persistent<v8::Context> context_persistent;
 
@@ -149,7 +150,7 @@ inline napi_value JsValueFromV8LocalValue(v8::Local<v8::Value> local) {
 
 inline v8::Local<v8::Value> V8LocalValueFromJsValue(napi_value v) {
   v8::Local<v8::Value> local;
-  memcpy(&local, &v, sizeof(v));
+  memcpy(static_cast<void*>(&local), &v, sizeof(v));
   return local;
 }
 
@@ -166,8 +167,7 @@ class Finalizer {
       _finalize_hint(finalize_hint) {
   }
 
-  ~Finalizer() {
-  }
+  ~Finalizer() = default;
 
  public:
   static Finalizer* New(napi_env env,

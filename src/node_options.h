@@ -47,7 +47,7 @@ class HostPort {
 class Options {
  public:
   virtual void CheckOptions(std::vector<std::string>* errors) {}
-  virtual ~Options() {}
+  virtual ~Options() = default;
 };
 
 // These options are currently essentially per-Environment, but it can be nice
@@ -75,6 +75,12 @@ class DebugOptions : public Options {
 
   HostPort host_port{"127.0.0.1", kDefaultInspectorPort};
 
+  // Used to patch the options as if --inspect-brk is passed.
+  void EnableBreakFirstLine() {
+    inspector_enabled = true;
+    break_first_line = true;
+  }
+
   bool wait_for_connect() const {
     return break_first_line || break_node_first_line;
   }
@@ -85,12 +91,16 @@ class DebugOptions : public Options {
 class EnvironmentOptions : public Options {
  public:
   bool abort_on_uncaught_exception = false;
+  bool experimental_json_modules = false;
   bool experimental_modules = false;
+  std::string es_module_specifier_resolution;
+  std::string module_type;
   std::string experimental_policy;
   bool experimental_repl_await = false;
   bool experimental_vm_modules = false;
   bool expose_internals = false;
   bool frozen_intrinsics = false;
+  std::string heap_snapshot_signal;
   std::string http_parser = "llhttp";
   bool no_deprecation = false;
   bool no_force_async_hooks_checks = false;
@@ -99,11 +109,20 @@ class EnvironmentOptions : public Options {
   bool preserve_symlinks = false;
   bool preserve_symlinks_main = false;
   bool prof_process = false;
+#if HAVE_INSPECTOR
+  std::string cpu_prof_dir;
+  static const uint64_t kDefaultCpuProfInterval = 1000;
+  uint64_t cpu_prof_interval = kDefaultCpuProfInterval;
+  std::string cpu_prof_name;
+  bool cpu_prof = false;
+#endif  // HAVE_INSPECTOR
   std::string redirect_warnings;
   bool throw_deprecation = false;
   bool trace_deprecation = false;
   bool trace_sync_io = false;
+  bool trace_tls = false;
   bool trace_warnings = false;
+  std::string unhandled_rejections;
   std::string userland_loader;
 
   bool syntax_check_only = false;
@@ -115,10 +134,12 @@ class EnvironmentOptions : public Options {
   bool print_eval = false;
   bool force_repl = false;
 
-#if HAVE_OPENSSL
-  bool tls_v1_0 = false;
-  bool tls_v1_1 = false;
-#endif
+  bool tls_min_v1_0 = false;
+  bool tls_min_v1_1 = false;
+  bool tls_min_v1_2 = false;
+  bool tls_min_v1_3 = false;
+  bool tls_max_v1_2 = false;
+  bool tls_max_v1_3 = false;
 
   std::vector<std::string> preload_modules;
 
@@ -223,7 +244,7 @@ enum OptionType {
 template <typename Options>
 class OptionsParser {
  public:
-  virtual ~OptionsParser() {}
+  virtual ~OptionsParser() = default;
 
   typedef Options TargetType;
 
@@ -321,7 +342,7 @@ class OptionsParser {
   // Represents a field within `Options`.
   class BaseOptionField {
    public:
-    virtual ~BaseOptionField() {}
+    virtual ~BaseOptionField() = default;
     virtual void* LookupImpl(Options* options) const = 0;
 
     template <typename T>

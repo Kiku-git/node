@@ -3,14 +3,12 @@
 #include "node_internals.h"
 #include "node_options.h"
 #include "node_report.h"
-#include "util.h"
+#include "util-inl.h"
 
-#include "env-inl.h"
 #include "handle_wrap.h"
 #include "node_buffer.h"
 #include "stream_base-inl.h"
 #include "stream_wrap.h"
-#include "util-inl.h"
 
 #include <v8.h>
 #include <atomic>
@@ -30,8 +28,7 @@ using v8::Object;
 using v8::String;
 using v8::Value;
 
-// External JavaScript API for triggering a report
-void TriggerReport(const FunctionCallbackInfo<Value>& info) {
+void WriteReport(const FunctionCallbackInfo<Value>& info) {
   Environment* env = Environment::GetCurrent(info);
   Isolate* isolate = env->isolate();
   HandleScope scope(isolate);
@@ -158,10 +155,11 @@ static void SetReportOnUncaughtException(
 
 static void Initialize(Local<Object> exports,
                        Local<Value> unused,
-                       Local<Context> context) {
+                       Local<Context> context,
+                       void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
-  env->SetMethod(exports, "triggerReport", TriggerReport);
+  env->SetMethod(exports, "writeReport", WriteReport);
   env->SetMethod(exports, "getReport", GetReport);
   env->SetMethod(exports, "getDirectory", GetDirectory);
   env->SetMethod(exports, "setDirectory", SetDirectory);

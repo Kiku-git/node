@@ -18,12 +18,12 @@ class ExtendedClass extends BaseClass {
 const baseObject = new BaseClass();
 const extendedObject = new ExtendedClass();
 
-// test napi_strict_equals
+// Test napi_strict_equals
 assert.ok(test_general.testStrictEquals(val1, val1));
 assert.strictEqual(test_general.testStrictEquals(val1, val2), false);
 assert.ok(test_general.testStrictEquals(val2, val3));
 
-// test napi_get_prototype
+// Test napi_get_prototype
 assert.strictEqual(test_general.testGetPrototype(baseObject),
                    Object.getPrototypeOf(baseObject));
 assert.strictEqual(test_general.testGetPrototype(extendedObject),
@@ -32,8 +32,7 @@ assert.strictEqual(test_general.testGetPrototype(extendedObject),
 assert.notStrictEqual(test_general.testGetPrototype(baseObject),
                       test_general.testGetPrototype(extendedObject));
 
-// test version management functions
-// expected version is currently 4
+// Test version management functions. The expected version is currently 4.
 assert.strictEqual(test_general.testGetVersion(), 4);
 
 [
@@ -91,7 +90,7 @@ assert.strictEqual(finalizeWasCalled, false,
                    ' test_general.finalizeWasCalled() ' +
                    `returned ${finalizeWasCalled}`);
 
-// test napi_adjust_external_memory
+// Test napi_adjust_external_memory
 const adjustedValue = test_general.testAdjustExternalMemory();
 assert.strictEqual(typeof adjustedValue, 'number');
 assert(adjustedValue > 0);

@@ -160,7 +160,7 @@ outside `node_modules` in order to better target developers, rather than users.
 ### DEP0006: child\_process options.customFds
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25279
     description: End-of-Life.
   - version:
@@ -442,6 +442,9 @@ code.
 ### DEP0019: require('.') resolved outside directory
 <!-- YAML
 changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/26973
+    description: Removed functionality.
   - version:
     - v4.8.6
     - v6.12.0
@@ -452,11 +455,10 @@ changes:
     description: Runtime deprecation.
 -->
 
-Type: Runtime
+Type: End-of-Life
 
-In certain cases, `require('.')` may resolve outside the package directory.
-This behavior is deprecated and will be removed in a future major Node.js
-release.
+In certain cases, `require('.')` could resolve outside the package directory.
+This behavior has been removed.
 
 <a id="DEP0020"></a>
 ### DEP0020: Server.connections
@@ -481,6 +483,9 @@ The [`Server.connections`][] property is deprecated. Please use the
 ### DEP0021: Server.listenFD
 <!-- YAML
 changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/27127
+    description: End-of-Life.
   - version:
     - v4.8.6
     - v6.12.0
@@ -491,9 +496,9 @@ changes:
     description: Runtime deprecation.
 -->
 
-Type: Runtime
+Type: End-of-Life
 
-The `Server.listenFD()` method is deprecated. Please use
+The `Server.listenFD()` method was deprecated and removed. Please use
 [`Server.listen({fd: <number>})`][] instead.
 
 <a id="DEP0022"></a>
@@ -513,7 +518,7 @@ The `os.tmpDir()` API is deprecated. Please use [`os.tmpdir()`][] instead.
 ### DEP0023: os.getNetworkInterfaces()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25280
     description: End-of-Life.
   - version:
@@ -569,7 +574,7 @@ The `sys` module is deprecated. Please use the [`util`][] module instead.
 ### DEP0026: util.print()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25377
     description: End-of-Life.
   - version:
@@ -590,7 +595,7 @@ Type: End-of-Life
 ### DEP0027: util.puts()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25377
     description: End-of-Life.
   - version:
@@ -611,7 +616,7 @@ Type: End-of-Life
 ### DEP0028: util.debug()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25377
     description: End-of-Life.
   - version:
@@ -632,7 +637,7 @@ Type: End-of-Life
 ### DEP0029: util.error()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25377
     description: End-of-Life.
   - version:
@@ -1279,7 +1284,7 @@ changes:
   - version: v8.0.0
     pr-url: https://github.com/nodejs/node/pull/10970
     description: Runtime deprecation.
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25828
     description: End-of-Life.
 -->
@@ -1362,7 +1367,7 @@ removed. Please use `sloppy` instead.
 ### DEP0066: outgoingMessage.\_headers, outgoingMessage.\_headerNames
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/24167
     description: Runtime deprecation.
   - version: v8.0.0
@@ -1688,7 +1693,7 @@ the client and is now unsupported. Use the `ciphers` parameter instead.
 ### DEP0084: requiring bundled internal dependencies
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25138
     description: This functionality has been removed.
   - version: v10.0.0
@@ -1905,6 +1910,9 @@ should start using the `async_context` variant of `MakeCallback` or
 ### DEP0098: AsyncHooks Embedder AsyncResource.emitBefore and AsyncResource.emitAfter APIs
 <!-- YAML
 changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/26530
+    description: End-of-Life
   - version:
     - v8.12.0
     - v9.6.0
@@ -1913,7 +1921,7 @@ changes:
     description: Runtime deprecation.
 -->
 
-Type: Runtime
+Type: End-of-Life
 
 The embedded API provided by AsyncHooks exposes `.emitBefore()` and
 `.emitAfter()` methods which are very easy to use incorrectly which can lead
@@ -2134,9 +2142,12 @@ changes:
   - version: v10.9.0
     pr-url: https://github.com/nodejs/node/pull/22004
     description: Documentation-only deprecation.
+  - version: v11.12.0
+    pr-url: https://github.com/nodejs/node/pull/26500
+    description: Added support for `--pending-deprecation`.
 -->
 
-Type: Documentation-only
+Type: Documentation-only (supports [`--pending-deprecation`][])
 
 `process.binding()` is for use by Node.js internal code only.
 
@@ -2162,7 +2173,7 @@ accessed outside of Node.js core: `Socket.prototype._handle`,
 ### DEP0113: Cipher.setAuthTag(), Decipher.getAuthTag()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/26249
     description: End-of-Life.
   - version: v11.0.0
@@ -2179,7 +2190,7 @@ were never documented and would throw when called.
 ### DEP0114: crypto._toBuf()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/25338
     description: End-of-Life.
   - version: v11.0.0
@@ -2231,18 +2242,21 @@ use the [WHATWG URL API][] instead.
 ### DEP0117: Native crypto handles
 <!-- YAML
 changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/27011
+    description: End-of-Life.
   - version: v11.0.0
     pr-url: https://github.com/nodejs/node/pull/22747
     description: Runtime deprecation.
 -->
 
-Type: Runtime
+Type: End-of-Life
 
 Previous versions of Node.js exposed handles to internal native objects through
 the `_handle` property of the `Cipher`, `Decipher`, `DiffieHellman`,
 `DiffieHellmanGroup`, `ECDH`, `Hash`, `Hmac`, `Sign`, and `Verify` classes.
-Using the `_handle` property to access the native object is deprecated because
-improper use of the native object can lead to crashing the application.
+The `_handle` property has been removed because improper use of the native
+object can lead to crashing the application.
 
 <a id="DEP0118"></a>
 ### DEP0118: dns.lookup() support for a falsy hostname
@@ -2278,7 +2292,7 @@ Type: Documentation-only (supports [`--pending-deprecation`][])
 ### DEP0120: Windows Performance Counter Support
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/24862
     description: End-of-Life.
   - version: v11.0.0
@@ -2298,7 +2312,7 @@ undocumented `COUNTER_NET_SERVER_CONNECTION()`,
 ### DEP0121: net._setSimultaneousAccepts()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/23760
     description: Runtime deprecation.
 -->
@@ -2313,7 +2327,7 @@ https://github.com/nodejs/node/issues/18391
 ### DEP0122: tls Server.prototype.setOptions()
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/23820
     description: Runtime deprecation.
 -->
@@ -2326,7 +2340,7 @@ Please use `Server.prototype.setSecureContext()` instead.
 ### DEP0123: setting the TLS ServerName to an IP address
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/23329
     description: Runtime deprecation.
 -->
@@ -2340,7 +2354,7 @@ Setting the TLS ServerName to an IP address is not permitted by
 ### DEP0124: using REPLServer.rli
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/26260
     description: Runtime deprecation.
 -->
@@ -2353,7 +2367,7 @@ This property is a reference to the instance itself.
 ### DEP0125: require('\_stream\_wrap')
 <!-- YAML
 changes:
-  - version: REPLACEME
+  - version: v12.0.0
     pr-url: https://github.com/nodejs/node/pull/26245
     description: Runtime deprecation.
 -->
@@ -2362,6 +2376,98 @@ Type: Runtime
 
 The `_stream_wrap` module is deprecated.
 
+<a id="DEP0126"></a>
+### DEP0126: timers.active()
+<!-- YAML
+changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26760
+    description: Runtime deprecation.
+-->
+
+Type: Runtime
+
+The previously undocumented `timers.active()` is deprecated.
+Please use the publicly documented [`timeout.refresh()`][] instead.
+If re-referencing the timeout is necessary, [`timeout.ref()`][] can be used
+with no performance impact since Node.js 10.
+
+<a id="DEP0127"></a>
+### DEP0127: timers._unrefActive()
+<!-- YAML
+changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26760
+    description: Runtime deprecation.
+-->
+
+Type: Runtime
+
+The previously undocumented and "private" `timers._unrefActive()` is deprecated.
+Please use the publicly documented [`timeout.refresh()`][] instead.
+If unreferencing the timeout is necessary, [`timeout.unref()`][] can be used
+with no performance impact since Node.js 10.
+
+<a id="DEP0128"></a>
+### DEP0128: modules with an invalid `main` entry and an `index.js` file
+<!-- YAML
+changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/26823
+    description: Documentation-only.
+-->
+
+Type: Documentation-only (supports [`--pending-deprecation`][])
+
+Modules that have an invalid `main` entry (e.g., `./does-not-exist.js`) and
+also have an `index.js` file in the top level directory will resolve the
+`index.js` file. That is deprecated and is going to throw an error in future
+Node.js versions.
+
+<a id="DEP0129"></a>
+### DEP0129: ChildProcess._channel
+<!-- YAML
+changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26982
+    description: Documentation-only.
+-->
+
+Type: Documentation-only
+
+The `_channel` property of child process objects returned by `spawn()` and
+similar functions is not intended for public use. Use `ChildProcess.channel`
+instead.
+
+<a id="DEP0130"></a>
+### DEP0130: Module.createRequireFromPath()
+<!-- YAML
+changes:
+  - version: v12.2.0
+    pr-url: https://github.com/nodejs/node/pull/27405
+    description: Documentation-only.
+-->
+
+Type: Documentation-only
+
+Module.createRequireFromPath() is deprecated. Please use [`module.createRequire()`][] instead.
+
+<a id="DEP0131"></a>
+### DEP0131: Legacy HTTP parser
+<!-- YAML
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/27498
+    description: Documentation-only.
+-->
+
+Type: Documentation-only
+
+The legacy HTTP parser, used by default in versions of Node.js prior to 12.0.0,
+is deprecated. This deprecation applies to users of the
+[`--http-parser=legacy`][] command-line flag.
+
+[`--http-parser=legacy`]: cli.html#cli_http_parser_library
 [`--pending-deprecation`]: cli.html#cli_pending_deprecation
 [`Buffer.allocUnsafeSlow(size)`]: buffer.html#buffer_class_method_buffer_allocunsafeslow_size
 [`Buffer.from(array)`]: buffer.html#buffer_class_method_buffer_from_array
@@ -2409,6 +2515,7 @@ The `_stream_wrap` module is deprecated.
 [`http.request()`]: http.html#http_http_request_options_callback
 [`https.get()`]: https.html#https_https_get_options_callback
 [`https.request()`]: https.html#https_https_request_options_callback
+[`module.createRequire()`]: modules.html#modules_module_createrequire_filename
 [`os.networkInterfaces()`]: os.html#os_os_networkinterfaces
 [`os.tmpdir()`]: os.html#os_os_tmpdir
 [`process.env`]: process.html#process_process_env
@@ -2417,6 +2524,9 @@ The `_stream_wrap` module is deprecated.
 [`script.createCachedData()`]: vm.html#vm_script_createcacheddata
 [`setInterval()`]: timers.html#timers_setinterval_callback_delay_args
 [`setTimeout()`]: timers.html#timers_settimeout_callback_delay_args
+[`timeout.ref()`]: timers.html#timers_timeout_ref
+[`timeout.refresh()`]: timers.html#timers_timeout_refresh
+[`timeout.unref()`]: timers.html#timers_timeout_unref
 [`tls.CryptoStream`]: tls.html#tls_class_cryptostream
 [`tls.SecureContext`]: tls.html#tls_tls_createsecurecontext_options
 [`tls.SecurePair`]: tls.html#tls_class_securepair

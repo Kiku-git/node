@@ -19,14 +19,15 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#include "node_errors.h"
+#include "node_contextify.h"
+
 #include "node_internals.h"
 #include "node_watchdog.h"
 #include "base_object-inl.h"
-#include "node_contextify.h"
 #include "node_context_data.h"
 #include "node_errors.h"
 #include "module_wrap.h"
+#include "util-inl.h"
 
 namespace node {
 namespace contextify {
@@ -60,6 +61,7 @@ using v8::PrimitiveArray;
 using v8::PropertyAttribute;
 using v8::PropertyCallbackInfo;
 using v8::PropertyDescriptor;
+using v8::PropertyHandlerFlags;
 using v8::Script;
 using v8::ScriptCompiler;
 using v8::ScriptOrigin;
@@ -148,13 +150,15 @@ MaybeLocal<Context> ContextifyContext::CreateV8Context(
   if (!CreateDataWrapper(env).ToLocal(&data_wrapper))
     return MaybeLocal<Context>();
 
-  NamedPropertyHandlerConfiguration config(PropertyGetterCallback,
-                                           PropertySetterCallback,
-                                           PropertyDescriptorCallback,
-                                           PropertyDeleterCallback,
-                                           PropertyEnumeratorCallback,
-                                           PropertyDefinerCallback,
-                                           data_wrapper);
+  NamedPropertyHandlerConfiguration config(
+      PropertyGetterCallback,
+      PropertySetterCallback,
+      PropertyDescriptorCallback,
+      PropertyDeleterCallback,
+      PropertyEnumeratorCallback,
+      PropertyDefinerCallback,
+      data_wrapper,
+      PropertyHandlerFlags::kHasNoSideEffect);
 
   IndexedPropertyHandlerConfiguration indexed_config(
       IndexedPropertyGetterCallback,
@@ -163,7 +167,8 @@ MaybeLocal<Context> ContextifyContext::CreateV8Context(
       IndexedPropertyDeleterCallback,
       PropertyEnumeratorCallback,
       IndexedPropertyDefinerCallback,
-      data_wrapper);
+      data_wrapper,
+      PropertyHandlerFlags::kHasNoSideEffect);
 
   object_template->SetHandler(config);
   object_template->SetHandler(indexed_config);
@@ -405,7 +410,7 @@ void ContextifyContext::PropertySetterCallback(
     args.GetReturnValue().Set(false);
   }
 
-  ctx->sandbox()->Set(ctx->context(), property, value).FromJust();
+  ctx->sandbox()->Set(ctx->context(), property, value).Check();
 }
 
 // static
@@ -469,7 +474,7 @@ void ContextifyContext::PropertyDefinerCallback(
         }
         // Set the property on the sandbox.
         sandbox->DefineProperty(context, property, *desc_for_sandbox)
-            .FromJust();
+            .Check();
       };
 
   if (desc.has_get() || desc.has_set()) {
@@ -620,7 +625,7 @@ void ContextifyScript::Init(Environment* env, Local<Object> target) {
   env->SetProtoMethod(script_tmpl, "runInThisContext", RunInThisContext);
 
   target->Set(env->context(), class_name,
-      script_tmpl->GetFunction(env->context()).ToLocalChecked()).FromJust();
+      script_tmpl->GetFunction(env->context()).ToLocalChecked()).Check();
   env->set_script_context_constructor_template(script_tmpl);
 }
 
@@ -719,7 +724,7 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
     compile_options = ScriptCompiler::kConsumeCodeCache;
 
   TryCatchScope try_catch(env);
-  Environment::ShouldNotAbortOnUncaughtScope no_abort_scope(env);
+  ShouldNotAbortOnUncaughtScope no_abort_scope(env);
   Context::Scope scope(parsing_context);
 
   MaybeLocal<UnboundScript> v8_script = ScriptCompiler::CompileUnboundScript(
@@ -744,7 +749,7 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
     args.This()->Set(
         env->context(),
         env->cached_data_rejected_string(),
-        Boolean::New(isolate, source.GetCachedData()->rejected)).FromJust();
+        Boolean::New(isolate, source.GetCachedData()->rejected)).Check();
   } else if (produce_cached_data) {
     const ScriptCompiler::CachedData* cached_data =
       ScriptCompiler::CreateCodeCache(v8_script.ToLocalChecked());
@@ -756,12 +761,12 @@ void ContextifyScript::New(const FunctionCallbackInfo<Value>& args) {
           cached_data->length);
       args.This()->Set(env->context(),
                        env->cached_data_string(),
-                       buf.ToLocalChecked()).FromJust();
+                       buf.ToLocalChecked()).Check();
     }
     args.This()->Set(
         env->context(),
         env->cached_data_produced_string(),
-        Boolean::New(isolate, cached_data_produced)).FromJust();
+        Boolean::New(isolate, cached_data_produced)).Check();
   }
   TRACE_EVENT_NESTABLE_ASYNC_END0(
       TRACING_CATEGORY_NODE2(vm, script),
@@ -924,7 +929,7 @@ bool ContextifyScript::EvalMachine(Environment* env,
 
   // Convert the termination exception into a regular exception.
   if (timed_out || received_signal) {
-    if (!env->is_main_thread() && env->is_stopping_worker())
+    if (!env->is_main_thread() && env->is_stopping())
       return false;
     env->isolate()->CancelTerminateExecution();
     // It is possible that execution was terminated by another timeout in
@@ -1141,6 +1146,20 @@ void ContextifyContext::CompileFunction(
   args.GetReturnValue().Set(fn);
 }
 
+static void StartSigintWatchdog(const FunctionCallbackInfo<Value>& args) {
+  int ret = SigintWatchdogHelper::GetInstance()->Start();
+  args.GetReturnValue().Set(ret == 0);
+}
+
+static void StopSigintWatchdog(const FunctionCallbackInfo<Value>& args) {
+  bool had_pending_signals = SigintWatchdogHelper::GetInstance()->Stop();
+  args.GetReturnValue().Set(had_pending_signals);
+}
+
+static void WatchdogHasPendingSigint(const FunctionCallbackInfo<Value>& args) {
+  bool ret = SigintWatchdogHelper::GetInstance()->HasPendingSignal();
+  args.GetReturnValue().Set(ret);
+}
 
 void Initialize(Local<Object> target,
                 Local<Value> unused,
@@ -1149,6 +1168,12 @@ void Initialize(Local<Object> target,
   Environment* env = Environment::GetCurrent(context);
   ContextifyContext::Init(env, target);
   ContextifyScript::Init(env, target);
+
+  env->SetMethod(target, "startSigintWatchdog", StartSigintWatchdog);
+  env->SetMethod(target, "stopSigintWatchdog", StopSigintWatchdog);
+  // Used in tests.
+  env->SetMethodNoSideEffect(
+      target, "watchdogHasPendingSigint", WatchdogHasPendingSigint);
 }
 
 }  // namespace contextify

@@ -13,7 +13,7 @@ const {
 } = internalBinding('http2');
 const { NghttpError } = require('internal/http2/util');
 
-// tests error handling within pushStream
+// Tests error handling within pushStream
 // - NGHTTP2_ERR_STREAM_ID_NOT_AVAILABLE (should emit session error)
 // - NGHTTP2_ERR_STREAM_CLOSED (should emit stream error)
 // - every other NGHTTP2 error from binding (should emit stream error)
@@ -53,7 +53,7 @@ const genericTests = Object.getOwnPropertyNames(constants)
     error: {
       code: 'ERR_HTTP2_ERROR',
       type: NghttpError,
-      name: 'Error [ERR_HTTP2_ERROR]',
+      name: 'Error',
       message: nghttp2ErrorString(constants[key])
     },
     type: 'stream'

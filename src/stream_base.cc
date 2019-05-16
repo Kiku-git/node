@@ -1,3 +1,4 @@
+#include "stream_base.h"  // NOLINT(build/include_inline)
 #include "stream_base-inl.h"
 #include "stream_wrap.h"
 
@@ -17,11 +18,16 @@ namespace node {
 using v8::Array;
 using v8::ArrayBuffer;
 using v8::Context;
+using v8::DontDelete;
+using v8::DontEnum;
+using v8::External;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
 using v8::Object;
+using v8::ReadOnly;
 using v8::String;
 using v8::Value;
 
@@ -270,7 +276,7 @@ int StreamBase::WriteString(const FunctionCallbackInfo<Value>& args) {
     // collected before `AfterWrite` is called.
     req_wrap_obj->Set(env->context(),
                       env->handle_string(),
-                      send_handle_obj).FromJust();
+                      send_handle_obj).Check();
   }
 
   StreamWriteResult res = Write(&buf, 1, send_handle, req_wrap_obj);
@@ -309,7 +315,9 @@ void StreamBase::CallJSOnreadMethod(ssize_t nread,
 
   AsyncWrap* wrap = GetAsyncWrap();
   CHECK_NOT_NULL(wrap);
-  wrap->MakeCallback(env->onread_string(), arraysize(argv), argv);
+  Local<Value> onread = wrap->object()->GetInternalField(kOnReadFunctionField);
+  CHECK(onread->IsFunction());
+  wrap->MakeCallback(onread.As<Function>(), arraysize(argv), argv);
 }
 
 
@@ -327,6 +335,100 @@ Local<Object> StreamBase::GetObject() {
   return GetAsyncWrap()->object();
 }
 
+void StreamBase::AddMethod(Environment* env,
+                           Local<Signature> signature,
+                           enum PropertyAttribute attributes,
+                           Local<FunctionTemplate> t,
+                           JSMethodFunction* stream_method,
+                           Local<String> string) {
+  Local<FunctionTemplate> templ =
+      env->NewFunctionTemplate(stream_method,
+                               signature,
+                               v8::ConstructorBehavior::kThrow,
+                               v8::SideEffectType::kHasNoSideEffect);
+  t->PrototypeTemplate()->SetAccessorProperty(
+      string, templ, Local<FunctionTemplate>(), attributes);
+}
+
+void StreamBase::AddMethods(Environment* env, Local<FunctionTemplate> t) {
+  HandleScope scope(env->isolate());
+
+  enum PropertyAttribute attributes =
+      static_cast<PropertyAttribute>(ReadOnly | DontDelete | DontEnum);
+  Local<Signature> sig = Signature::New(env->isolate(), t);
+
+  AddMethod(env, sig, attributes, t, GetFD, env->fd_string());
+  AddMethod(
+      env, sig, attributes, t, GetExternal, env->external_stream_string());
+  AddMethod(env, sig, attributes, t, GetBytesRead, env->bytes_read_string());
+  AddMethod(
+      env, sig, attributes, t, GetBytesWritten, env->bytes_written_string());
+  env->SetProtoMethod(t, "readStart", JSMethod<&StreamBase::ReadStartJS>);
+  env->SetProtoMethod(t, "readStop", JSMethod<&StreamBase::ReadStopJS>);
+  env->SetProtoMethod(t, "shutdown", JSMethod<&StreamBase::Shutdown>);
+  env->SetProtoMethod(t, "writev", JSMethod<&StreamBase::Writev>);
+  env->SetProtoMethod(t, "writeBuffer", JSMethod<&StreamBase::WriteBuffer>);
+  env->SetProtoMethod(
+      t, "writeAsciiString", JSMethod<&StreamBase::WriteString<ASCII>>);
+  env->SetProtoMethod(
+      t, "writeUtf8String", JSMethod<&StreamBase::WriteString<UTF8>>);
+  env->SetProtoMethod(
+      t, "writeUcs2String", JSMethod<&StreamBase::WriteString<UCS2>>);
+  env->SetProtoMethod(
+      t, "writeLatin1String", JSMethod<&StreamBase::WriteString<LATIN1>>);
+  t->PrototypeTemplate()->Set(FIXED_ONE_BYTE_STRING(env->isolate(),
+                                                    "isStreamBase"),
+                              True(env->isolate()));
+  t->PrototypeTemplate()->SetAccessor(
+      FIXED_ONE_BYTE_STRING(env->isolate(), "onread"),
+      BaseObject::InternalFieldGet<kOnReadFunctionField>,
+      BaseObject::InternalFieldSet<kOnReadFunctionField, &Value::IsFunction>);
+}
+
+void StreamBase::GetFD(const FunctionCallbackInfo<Value>& args) {
+  // Mimic implementation of StreamBase::GetFD() and UDPWrap::GetFD().
+  StreamBase* wrap = StreamBase::FromObject(args.This().As<Object>());
+  if (wrap == nullptr) return args.GetReturnValue().Set(UV_EINVAL);
+
+  if (!wrap->IsAlive()) return args.GetReturnValue().Set(UV_EINVAL);
+
+  args.GetReturnValue().Set(wrap->GetFD());
+}
+
+void StreamBase::GetBytesRead(const FunctionCallbackInfo<Value>& args) {
+  StreamBase* wrap = StreamBase::FromObject(args.This().As<Object>());
+  if (wrap == nullptr) return args.GetReturnValue().Set(0);
+
+  // uint64_t -> double. 53bits is enough for all real cases.
+  args.GetReturnValue().Set(static_cast<double>(wrap->bytes_read_));
+}
+
+void StreamBase::GetBytesWritten(const FunctionCallbackInfo<Value>& args) {
+  StreamBase* wrap = StreamBase::FromObject(args.This().As<Object>());
+  if (wrap == nullptr) return args.GetReturnValue().Set(0);
+
+  // uint64_t -> double. 53bits is enough for all real cases.
+  args.GetReturnValue().Set(static_cast<double>(wrap->bytes_written_));
+}
+
+void StreamBase::GetExternal(const FunctionCallbackInfo<Value>& args) {
+  StreamBase* wrap = StreamBase::FromObject(args.This().As<Object>());
+  if (wrap == nullptr) return;
+
+  Local<External> ext = External::New(args.GetIsolate(), wrap);
+  args.GetReturnValue().Set(ext);
+}
+
+template <int (StreamBase::*Method)(const FunctionCallbackInfo<Value>& args)>
+void StreamBase::JSMethod(const FunctionCallbackInfo<Value>& args) {
+  StreamBase* wrap = StreamBase::FromObject(args.Holder().As<Object>());
+  if (wrap == nullptr) return;
+
+  if (!wrap->IsAlive()) return args.GetReturnValue().Set(UV_EINVAL);
+
+  AsyncHooks::DefaultTriggerAsyncIdScope trigger_scope(wrap->GetAsyncWrap());
+  args.GetReturnValue().Set((wrap->*Method)(args));
+}
 
 int StreamResource::DoTryWrite(uv_buf_t** bufs, size_t* count) {
   // No TryWrite by default

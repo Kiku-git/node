@@ -25,14 +25,14 @@ const fixtureC = fixtures.path('printC.js');
 const fixtureD = fixtures.path('define-global.js');
 const fixtureThrows = fixtures.path('throws_error4.js');
 
-// test preloading a single module works
+// Test preloading a single module works
 childProcess.exec(`"${nodeBinary}" ${preloadOption([fixtureA])} "${fixtureB}"`,
                   function(err, stdout, stderr) {
                     assert.ifError(err);
                     assert.strictEqual(stdout, 'A\nB\n');
                   });
 
-// test preloading multiple modules works
+// Test preloading multiple modules works
 childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureA, fixtureB])} "${fixtureC}"`,
   function(err, stdout, stderr) {
@@ -78,7 +78,7 @@ stdinProc.on('close', function(code) {
   assert.strictEqual(stdinStdout, 'A\nhello\n');
 });
 
-// test that preload can be used with repl
+// Test that preload can be used with repl
 const replProc = childProcess.spawn(
   nodeBinary,
   ['-i', '--require', fixtureA],
@@ -86,7 +86,7 @@ const replProc = childProcess.spawn(
 );
 replProc.stdin.end('.exit\n');
 let replStdout = '';
-replProc.stdout.on('data', function(d) {
+replProc.stdout.on('data', (d) => {
   replStdout += d;
 });
 replProc.on('close', function(code) {
@@ -94,8 +94,9 @@ replProc.on('close', function(code) {
   const output = [
     'A',
     '> '
-  ].join('\n');
-  assert.strictEqual(replStdout, output);
+  ];
+  assert.ok(replStdout.startsWith(output[0]));
+  assert.ok(replStdout.endsWith(output[1]));
 });
 
 // Test that preload placement at other points in the cmdline
@@ -109,12 +110,12 @@ childProcess.exec(
   }
 );
 
-// test that preload works with -i
+// Test that preload works with -i
 const interactive = childProcess.exec(
   `"${nodeBinary}" ${preloadOption([fixtureD])}-i`,
   common.mustCall(function(err, stdout, stderr) {
     assert.ifError(err);
-    assert.strictEqual(stdout, "> 'test'\n> ");
+    assert.ok(stdout.endsWith("> 'test'\n> "));
   })
 );
 

@@ -17,12 +17,14 @@ const object = {
 };
 
 assert.strictEqual(test_object.Get(object, 'hello'), 'world');
+assert.strictEqual(test_object.GetNamed(object, 'hello'), 'world');
 assert.deepStrictEqual(test_object.Get(object, 'array'),
                        [ 1, 94, 'str', 12.321, { test: 'obj in arr' } ]);
 assert.deepStrictEqual(test_object.Get(object, 'newObject'),
                        { test: 'obj in obj' });
 
 assert(test_object.Has(object, 'hello'));
+assert(test_object.HasNamed(object, 'hello'));
 assert(test_object.Has(object, 'array'));
 assert(test_object.Has(object, 'newObject'));
 
@@ -113,8 +115,10 @@ assert.strictEqual(newObject.test_string, 'test string');
   assert.strictEqual(test_object.Get(object2, sym1), '@@iterator');
   assert.strictEqual(test_object.Get(object2, sym2), sym3);
   assert(test_object.Set(object2, 'string', 'value'));
+  assert(test_object.SetNamed(object2, 'named_string', 'value'));
   assert(test_object.Set(object2, sym4, 123));
   assert(test_object.Has(object2, 'string'));
+  assert(test_object.HasNamed(object2, 'named_string'));
   assert(test_object.Has(object2, sym4));
   assert.strictEqual(test_object.Get(object2, 'string'), 'value');
   assert.strictEqual(test_object.Get(object2, sym4), 123);
@@ -198,3 +202,53 @@ assert.strictEqual(newObject.test_string, 'test string');
   assert.strictEqual(test_object.Delete(obj, 'foo'), true);
   assert.strictEqual(obj.foo, 'baz');
 }
+
+{
+  // Verify that napi_get_property_names gets the right set of property names,
+  // i.e.: includes prototypes, only enumerable properties, skips symbols,
+  // and includes indices and converts them to strings.
+
+  const object = Object.create({
+    inherited: 1
+  });
+
+  object.normal = 2;
+  object[Symbol('foo')] = 3;
+  Object.defineProperty(object, 'unenumerable', {
+    value: 4,
+    enumerable: false,
+    writable: true,
+    configurable: true
+  });
+  object[5] = 5;
+
+  assert.deepStrictEqual(test_object.GetPropertyNames(object),
+                         ['5', 'normal', 'inherited']);
+}
+
+// Verify that passing NULL to napi_set_property() results in the correct
+// error.
+assert.deepStrictEqual(test_object.TestSetProperty(), {
+  envIsNull: 'pass',
+  objectIsNull: 'pass',
+  keyIsNull: 'pass',
+  valueIsNull: 'pass'
+});
+
+// Verify that passing NULL to napi_has_property() results in the correct
+// error.
+assert.deepStrictEqual(test_object.TestHasProperty(), {
+  envIsNull: 'pass',
+  objectIsNull: 'pass',
+  keyIsNull: 'pass',
+  resultIsNull: 'pass'
+});
+
+// Verify that passing NULL to napi_get_property() results in the correct
+// error.
+assert.deepStrictEqual(test_object.TestGetProperty(), {
+  envIsNull: 'pass',
+  objectIsNull: 'pass',
+  keyIsNull: 'pass',
+  resultIsNull: 'pass'
+});

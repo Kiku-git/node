@@ -1,13 +1,13 @@
 'use strict';
+const { expectsError, mustCall } = require('../common');
 const assert = require('assert');
 const { createServer, maxHeaderSize } = require('http');
 const { createConnection } = require('net');
-const { expectsError, mustCall } = require('../common');
 
 const CRLF = '\r\n';
 const DUMMY_HEADER_NAME = 'Cookie: ';
 const DUMMY_HEADER_VALUE = 'a'.repeat(
-  // plus one is to make it 1 byte too big
+  // Plus one is to make it 1 byte too big
   maxHeaderSize - DUMMY_HEADER_NAME.length - (2 * CRLF.length) + 1
 );
 const PAYLOAD_GET = 'GET /blah HTTP/1.1';
@@ -39,7 +39,8 @@ server.listen(0, mustCall(() => {
   c.on('end', mustCall(() => {
     assert.strictEqual(
       received,
-      'HTTP/1.1 431 Request Header Fields Too Large\r\n\r\n'
+      'HTTP/1.1 431 Request Header Fields Too Large\r\n' +
+      'Connection: close\r\n\r\n'
     );
     c.end();
   }));

@@ -38,7 +38,7 @@ const Readable = require('stream').Readable;
   r.push(Buffer.from('blerg'));
 
   setTimeout(function() {
-    // we're testing what we think we are
+    // We're testing what we think we are
     assert(!r._readableState.reading);
     r.on('readable', common.mustCall());
   }, 1);
@@ -118,7 +118,7 @@ const Readable = require('stream').Readable;
   // #20923
   const r = new Readable();
   r._read = function() {
-    // actually doing thing here
+    // Actually doing thing here
   };
   r.on('data', function() {});
 

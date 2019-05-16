@@ -20,22 +20,25 @@
 //
 // SPDX-License-Identifier: MIT
 
-#include <errno.h>
+#include "node_large_page.h"
+
 #include <fcntl.h>  // _O_RDWR
-#include <limits.h>  // PATH_MAX
-#include <locale.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <unistd.h>  // readlink
+
+#include <cerrno>   // NOLINT(build/include)
+#include <climits>  // PATH_MAX
+#include <clocale>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <cstring>
 #include <string>
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <unistd.h>  // readlink
 
 // The functions in this file map the text segment of node into 2M pages.
 // The algorithm is simple

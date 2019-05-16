@@ -24,29 +24,20 @@
     },
     'force_load%': '<(force_load)',
   },
-  # Putting these explicitly here so not to be dependant on common.gypi.
-  'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
-  'xcode_settings': {
-    'WARNING_CFLAGS': [
-      '-Wall',
-      '-Wendif-labels',
-      '-W',
-      '-Wno-unused-parameter',
-      '-Werror=undefined-inline',
-    ],
-  },
+
   'conditions': [
     [ 'clang==1', {
       'cflags': [ '-Werror=undefined-inline', ]
     }],
-    [ 'node_shared=="false"', {
+    [ 'node_shared=="false" and "<(_type)"=="executable"', {
       'msvs_settings': {
         'VCManifestTool': {
           'EmbedManifest': 'true',
           'AdditionalManifestFiles': 'src/res/node.exe.extra.manifest'
         }
       },
-    }, {
+    }],
+    [ 'node_shared=="true"', {
       'defines': [
         'NODE_SHARED_MODE',
       ],
@@ -78,15 +69,9 @@
       'dependencies': [ 'deps/v8/gypfiles/d8.gyp:d8' ],
     }],
     [ 'node_use_bundled_v8=="true"', {
-      'conditions': [
-        [ 'build_v8_with_gn=="true"', {
-          'dependencies': ['deps/v8/gypfiles/v8-monolithic.gyp:v8_monolith'],
-        }, {
-          'dependencies': [
-            'deps/v8/gypfiles/v8.gyp:v8',
-            'deps/v8/gypfiles/v8.gyp:v8_libplatform',
-          ],
-        }],
+      'dependencies': [
+        'tools/v8_gypfiles/v8.gyp:v8',
+        'tools/v8_gypfiles/v8.gyp:v8_libplatform',
       ],
     }],
     [ 'node_use_v8_platform=="true"', {
@@ -125,13 +110,13 @@
        target_arch=="ia32" or target_arch=="x32")', {
       'defines': [ 'NODE_ENABLE_VTUNE_PROFILING' ],
       'dependencies': [
-        'deps/v8/gypfiles/v8vtune.gyp:v8_vtune'
+        'tools/v8_gypfiles/v8vtune.gyp:v8_vtune'
       ],
     }],
     [ 'node_no_browser_globals=="true"', {
       'defines': [ 'NODE_NO_BROWSER_GLOBALS' ],
     } ],
-    [ 'node_use_bundled_v8=="true" and v8_postmortem_support=="true" and force_load=="true"', {
+    [ 'node_use_bundled_v8=="true" and v8_postmortem_support==1 and force_load=="true"', {
       'xcode_settings': {
         'OTHER_LDFLAGS': [
           '-Wl,-force_load,<(v8_base)',
@@ -158,8 +143,8 @@
           'conditions': [
             ['OS!="aix" and node_shared=="false"', {
               'ldflags': [
-                '-Wl,--whole-archive,<(obj_dir)/deps/zlib/<(STATIC_LIB_PREFIX)'
-                    'zlib<(STATIC_LIB_SUFFIX)',
+                '-Wl,--whole-archive,'
+                '<(obj_dir)/deps/zlib/<(STATIC_LIB_PREFIX)zlib<(STATIC_LIB_SUFFIX)',
                 '-Wl,--no-whole-archive',
               ],
             }],
@@ -199,8 +184,8 @@
           'conditions': [
             ['OS!="aix" and node_shared=="false"', {
               'ldflags': [
-                '-Wl,--whole-archive,<(obj_dir)/deps/uv/<(STATIC_LIB_PREFIX)'
-                    'uv<(STATIC_LIB_SUFFIX)',
+                '-Wl,--whole-archive,'
+                '<(obj_dir)/deps/uv/<(STATIC_LIB_PREFIX)uv<(STATIC_LIB_SUFFIX)',
                 '-Wl,--no-whole-archive',
               ],
             }],
@@ -238,27 +223,33 @@
     [ 'OS=="aix"', {
       'defines': [
         '_LINUX_SOURCE_COMPAT',
-        '__STDC_FORMAT_MACROS'
+        '__STDC_FORMAT_MACROS',
       ],
       'conditions': [
         [ 'force_load=="true"', {
-
+          'variables': {
+            'exp_filename': '<(PRODUCT_DIR)/<(_target_name).exp',
+          },
           'actions': [
             {
               'action_name': 'expfile',
               'inputs': [
-                '<(obj_dir)'
+                '<(obj_dir)',
               ],
               'outputs': [
-                '<(PRODUCT_DIR)/node.exp'
+                '<(exp_filename)',
               ],
               'action': [
                 'sh', 'tools/create_expfile.sh',
-                      '<@(_inputs)', '<@(_outputs)'
+                '<@(_inputs)',
+                '<@(_outputs)',
               ],
             }
           ],
-          'ldflags': ['-Wl,-bE:<(PRODUCT_DIR)/node.exp', '-Wl,-brtl'],
+          'ldflags': [
+            '-Wl,-bE:<(exp_filename)',
+            '-Wl,-brtl',
+          ],
         }],
       ],
     }],

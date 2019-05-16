@@ -38,7 +38,7 @@ function main({ dur, len, type }) {
   const reader = new Reader();
   const writer = new Writer();
 
-  // the actual benchmark.
+  // The actual benchmark.
   const fakeSocket = new JSStreamWrap(new PassThrough());
   bench.start();
   reader.pipe(fakeSocket);
@@ -68,7 +68,7 @@ Writer.prototype.write = function(chunk, encoding, cb) {
   return true;
 };
 
-// doesn't matter, never emits anything.
+// Doesn't matter, never emits anything.
 Writer.prototype.on = function() {};
 Writer.prototype.once = function() {};
 Writer.prototype.emit = function() {};

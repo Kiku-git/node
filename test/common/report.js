@@ -1,4 +1,4 @@
-/* eslint-disable node-core/required-modules */
+/* eslint-disable node-core/require-common-first, node-core/required-modules */
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
@@ -7,8 +7,8 @@ const path = require('path');
 
 function findReports(pid, dir) {
   // Default filenames are of the form
-  // report.<date>.<time>.<pid>.<seq>.json
-  const format = '^report\\.\\d+\\.\\d+\\.' + pid + '\\.\\d+\\.json$';
+  // report.<date>.<time>.<pid>.<tid>.<seq>.json
+  const format = '^report\\.\\d+\\.\\d+\\.' + pid + '\\.\\d+\\.\\d+\\.json$';
   const filePattern = new RegExp(format);
   const files = fs.readdirSync(dir);
   const results = [];
@@ -63,19 +63,16 @@ function _validateContent(data) {
                         'nodejsVersion', 'wordSize', 'arch', 'platform',
                         'componentVersions', 'release', 'osName', 'osRelease',
                         'osVersion', 'osMachine', 'host', 'glibcVersionRuntime',
-                        'glibcVersionCompiler'];
+                        'glibcVersionCompiler', 'cwd'];
   checkForUnknownFields(header, headerFields);
   assert.strictEqual(typeof header.event, 'string');
   assert.strictEqual(typeof header.trigger, 'string');
   assert(typeof header.filename === 'string' || header.filename === null);
   assert.notStrictEqual(new Date(header.dumpEventTime).toString(),
                         'Invalid Date');
-  if (isWindows)
-    assert.strictEqual(header.dumpEventTimeStamp, undefined);
-  else
-    assert(String(+header.dumpEventTimeStamp), header.dumpEventTimeStamp);
-
+  assert(String(+header.dumpEventTimeStamp), header.dumpEventTimeStamp);
   assert(Number.isSafeInteger(header.processId));
+  assert.strictEqual(typeof header.cwd, 'string');
   assert(Array.isArray(header.commandLine));
   header.commandLine.forEach((arg) => {
     assert.strictEqual(typeof arg, 'string');

@@ -24,6 +24,7 @@
 #include "env-inl.h"
 #include "node_internals.h"
 #include "string_bytes.h"
+#include "util-inl.h"
 
 #include <cstring>
 
@@ -48,11 +49,6 @@ using v8::Number;
 using v8::Object;
 using v8::String;
 using v8::Value;
-
-
-SyncProcessOutputBuffer::SyncProcessOutputBuffer() {
-}
-
 
 void SyncProcessOutputBuffer::OnAlloc(size_t suggested_size,
                                       uv_buf_t* buf) const {
@@ -677,22 +673,22 @@ Local<Object> SyncProcessRunner::BuildResultObject() {
 
   if (GetError() != 0) {
     js_result->Set(context, env()->error_string(),
-                   Integer::New(env()->isolate(), GetError())).FromJust();
+                   Integer::New(env()->isolate(), GetError())).Check();
   }
 
   if (exit_status_ >= 0) {
     if (term_signal_ > 0) {
       js_result->Set(context, env()->status_string(),
-                     Null(env()->isolate())).FromJust();
+                     Null(env()->isolate())).Check();
     } else {
       js_result->Set(context, env()->status_string(),
                      Number::New(env()->isolate(),
-                                 static_cast<double>(exit_status_))).FromJust();
+                                 static_cast<double>(exit_status_))).Check();
     }
   } else {
     // If exit_status_ < 0 the process was never started because of some error.
     js_result->Set(context, env()->status_string(),
-                   Null(env()->isolate())).FromJust();
+                   Null(env()->isolate())).Check();
   }
 
   if (term_signal_ > 0)
@@ -701,20 +697,20 @@ Local<Object> SyncProcessRunner::BuildResultObject() {
                                        signo_string(term_signal_),
                                        v8::NewStringType::kNormal)
                        .ToLocalChecked())
-        .FromJust();
+        .Check();
   else
     js_result->Set(context, env()->signal_string(),
-                   Null(env()->isolate())).FromJust();
+                   Null(env()->isolate())).Check();
 
   if (exit_status_ >= 0)
     js_result->Set(context, env()->output_string(),
-                   BuildOutputArray()).FromJust();
+                   BuildOutputArray()).Check();
   else
     js_result->Set(context, env()->output_string(),
-                   Null(env()->isolate())).FromJust();
+                   Null(env()->isolate())).Check();
 
   js_result->Set(context, env()->pid_string(),
-                 Number::New(env()->isolate(), uv_process_.pid)).FromJust();
+                 Number::New(env()->isolate(), uv_process_.pid)).Check();
 
   return scope.Escape(js_result);
 }
@@ -731,9 +727,9 @@ Local<Array> SyncProcessRunner::BuildOutputArray() {
   for (uint32_t i = 0; i < stdio_pipes_.size(); i++) {
     SyncProcessStdioPipe* h = stdio_pipes_[i].get();
     if (h != nullptr && h->writable())
-      js_output->Set(context, i, h->GetOutputAsBuffer(env())).FromJust();
+      js_output->Set(context, i, h->GetOutputAsBuffer(env())).Check();
     else
-      js_output->Set(context, i, Null(env()->isolate())).FromJust();
+      js_output->Set(context, i, Null(env()->isolate())).Check();
   }
 
   return scope.Escape(js_output);
@@ -1045,7 +1041,7 @@ Maybe<int> SyncProcessRunner::CopyJsStringArray(Local<Value> js_value,
                 i,
                 value->ToString(env()->isolate()->GetCurrentContext())
                     .ToLocalChecked())
-          .FromJust();
+          .Check();
     }
 
     Maybe<size_t> maybe_size = StringBytes::StorageSize(isolate, value, UTF8);

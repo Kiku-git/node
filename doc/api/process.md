@@ -5,7 +5,12 @@
 
 The `process` object is a `global` that provides information about, and control
 over, the current Node.js process. As a global, it is always available to
-Node.js applications without using `require()`.
+Node.js applications without using `require()`. It can also be explicitly
+accessed using `require()`:
+
+```js
+const process = require('process');
+```
 
 ## Process Events
 
@@ -200,7 +205,16 @@ most convenient for scripts).
 ### Event: 'uncaughtException'
 <!-- YAML
 added: v0.1.18
+changes:
+  - version: v12.0.0
+    pr-url: https://github.com/nodejs/node/pull/26599
+    description: Added the `origin` argument.
 -->
+
+* `err` {Error} The uncaught exception.
+* `origin` {string} Indicates if the exception originates from an unhandled
+  rejection or from synchronous errors. Can either be `'uncaughtException'` or
+  `'unhandledRejection'`.
 
 The `'uncaughtException'` event is emitted when an uncaught JavaScript
 exception bubbles all the way back to the event loop. By default, Node.js
@@ -212,12 +226,13 @@ behavior. Alternatively, change the [`process.exitCode`][] in the
 provided exit code. Otherwise, in the presence of such handler the process will
 exit with 0.
 
-The listener function is called with the `Error` object passed as the only
-argument.
-
 ```js
-process.on('uncaughtException', (err) => {
-  fs.writeSync(1, `Caught exception: ${err}\n`);
+process.on('uncaughtException', (err, origin) => {
+  fs.writeSync(
+    process.stderr.fd,
+    `Caught exception: ${err}\n` +
+    `Exception origin: ${origin}`
+  );
 });
 
 setTimeout(() => {
@@ -269,6 +284,10 @@ changes:
                  a process warning.
 -->
 
+* `reason` {Error|any} The object with which the promise was rejected
+  (typically an [`Error`][] object).
+* `promise` {Promise} The rejected promise.
+
 The `'unhandledRejection'` event is emitted whenever a `Promise` is rejected and
 no error handler is attached to the promise within a turn of the event loop.
 When programming with Promises, exceptions are encapsulated as "rejected
@@ -277,21 +296,15 @@ are propagated through a `Promise` chain. The `'unhandledRejection'` event is
 useful for detecting and keeping track of promises that were rejected whose
 rejections have not yet been handled.
 
-The listener function is called with the following arguments:
-
-* `reason` {Error|any} The object with which the promise was rejected
-  (typically an [`Error`][] object).
-* `p` the `Promise` that was rejected.
-
 ```js
-process.on('unhandledRejection', (reason, p) => {
-  console.log('Unhandled Rejection at:', p, 'reason:', reason);
+process.on('unhandledRejection', (reason, promise) => {
+  console.log('Unhandled Rejection at:', promise, 'reason:', reason);
   // Application specific logging, throwing an error, or other logic here
 });
 
 somePromise.then((res) => {
-  return reportToUser(JSON.pasre(res)); // note the typo (`pasre`)
-}); // no `.catch()` or `.then()`
+  return reportToUser(JSON.pasre(res)); // Note the typo (`pasre`)
+}); // No `.catch()` or `.then()`
 ```
 
 The following will also trigger the `'unhandledRejection'` event to be
@@ -312,7 +325,7 @@ as would typically be the case for other `'unhandledRejection'` events. To
 address such failures, a non-operational
 [`.catch(() => { })`][`promise.catch()`] handler may be attached to
 `resource.loaded`, which would prevent the `'unhandledRejection'` event from
-being emitted. Alternatively, the [`'rejectionHandled'`][] event may be used.
+being emitted.
 
 ### Event: 'warning'
 <!-- YAML
@@ -664,7 +677,7 @@ An example of the possible output looks like:
      node_shared_openssl: 'false',
      strict_aliasing: 'true',
      target_arch: 'x64',
-     v8_use_snapshot: 'true'
+     v8_use_snapshot: 1
    }
 }
 ```
@@ -949,6 +962,11 @@ emitMyWarning();
 <!-- YAML
 added: v0.1.27
 changes:
+  - version: v11.14.0
+    pr-url: https://github.com/nodejs/node/pull/26544
+    description: Worker threads will now use a copy of the parent thread’s
+                 `process.env` by default, configurable through the `env`
+                 option of the `Worker` constructor.
   - version: v10.0.0
     pr-url: https://github.com/nodejs/node/pull/18990
     description: Implicit conversion of variable value to string is deprecated.
@@ -978,8 +996,9 @@ An example of this object looks like:
 ```
 
 It is possible to modify this object, but such modifications will not be
-reflected outside the Node.js process. In other words, the following example
-would not work:
+reflected outside the Node.js process, or (unless explicitly requested)
+to other [`Worker`][] threads.
+In other words, the following example would not work:
 
 ```console
 $ node -e 'process.env.foo = "bar"' && echo $foo
@@ -1022,7 +1041,12 @@ console.log(process.env.test);
 // => 1
 ```
 
-`process.env` is read-only in [`Worker`][] threads.
+Unless explicitly specified when creating a [`Worker`][] instance,
+each [`Worker`][] thread has its own copy of `process.env`, based on its
+parent thread’s `process.env`, or whatever was specified as the `env` option
+to the [`Worker`][] constructor. Changes to `process.env` will not be visible
+across [`Worker`][] threads, and only the main thread can make changes that
+are visible to the operating system or to native add-ons.
 
 ## process.execArgv
 <!-- YAML
@@ -1286,7 +1310,7 @@ setTimeout(() => {
   // [ 1, 552 ]
 
   console.log(`Benchmark took ${diff[0] * NS_PER_SEC + diff[1]} nanoseconds`);
-  // benchmark took 1000000552 nanoseconds
+  // Benchmark took 1000000552 nanoseconds
 }, 1000);
 ```
 
@@ -1671,7 +1695,7 @@ reports for the current process. Additional documentation is available in the
 
 ### process.report.directory
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {string}
@@ -1686,7 +1710,7 @@ console.log(`Report directory is ${process.report.directory}`);
 
 ### process.report.filename
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {string}
@@ -1719,7 +1743,7 @@ Additional documentation is available in the [report documentation][].
 
 ### process.report.reportOnFatalError
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {boolean}
@@ -1733,7 +1757,7 @@ console.log(`Report on fatal error: ${process.report.reportOnFatalError}`);
 
 ### process.report.reportOnSignal
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {boolean}
@@ -1747,7 +1771,7 @@ console.log(`Report on signal: ${process.report.reportOnSignal}`);
 
 ### process.report.reportOnUncaughtException
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {boolean}
@@ -1760,7 +1784,7 @@ console.log(`Report on exception: ${process.report.reportOnUncaughtException}`);
 
 ### process.report.signal
 <!-- YAML
-added: REPLACEME
+added: v11.12.0
 -->
 
 * {string}
@@ -1772,7 +1796,7 @@ The signal used to trigger the creation of a diagnostic report. Defaults to
 console.log(`Report signal: ${process.report.signal}`);
 ```
 
-### process.report.triggerReport([filename][, err])
+### process.report.writeReport([filename][, err])
 <!-- YAML
 added: v11.8.0
 -->
@@ -1790,7 +1814,7 @@ filename includes the date, time, PID, and a sequence number. The report's
 JavaScript stack trace is taken from `err`, if present.
 
 ```js
-process.report.triggerReport();
+process.report.writeReport();
 ```
 
 Additional documentation is available in the [report documentation][].
@@ -2198,22 +2222,23 @@ console.log(process.versions);
 
 Will generate an object similar to:
 
-<!-- eslint-skip -->
-```js
-{ http_parser: '2.7.0',
-  node: '8.9.0',
-  v8: '6.3.292.48-node.6',
-  uv: '1.18.0',
+```console
+{ node: '11.13.0',
+  v8: '7.0.276.38-node.18',
+  uv: '1.27.0',
   zlib: '1.2.11',
-  ares: '1.13.0',
-  modules: '60',
-  nghttp2: '1.29.0',
-  napi: '2',
-  openssl: '1.0.2n',
-  icu: '60.1',
-  unicode: '10.0',
-  cldr: '32.0',
-  tz: '2016b' }
+  brotli: '1.0.7',
+  ares: '1.15.0',
+  modules: '67',
+  nghttp2: '1.34.0',
+  napi: '4',
+  llhttp: '1.1.1',
+  http_parser: '2.8.0',
+  openssl: '1.1.1b',
+  cldr: '34.0',
+  icu: '63.1',
+  tz: '2018e',
+  unicode: '11.0' }
 ```
 
 ## Exit Codes
@@ -2265,7 +2290,6 @@ cases:
 
 [`'exit'`]: #process_event_exit
 [`'message'`]: child_process.html#child_process_event_message
-[`'rejectionHandled'`]: #process_event_rejectionhandled
 [`'uncaughtException'`]: #process_event_uncaughtexception
 [`ChildProcess.disconnect()`]: child_process.html#child_process_subprocess_disconnect
 [`ChildProcess.send()`]: child_process.html#child_process_subprocess_send_message_sendhandle_options_callback

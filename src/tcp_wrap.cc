@@ -52,8 +52,6 @@ using v8::String;
 using v8::Uint32;
 using v8::Value;
 
-using AsyncHooks = Environment::AsyncHooks;
-
 MaybeLocal<Object> TCPWrap::Instantiate(Environment* env,
                                         AsyncWrap* parent,
                                         TCPWrap::SocketType type) {
@@ -79,13 +77,13 @@ void TCPWrap::Initialize(Local<Object> target,
   Local<FunctionTemplate> t = env->NewFunctionTemplate(New);
   Local<String> tcpString = FIXED_ONE_BYTE_STRING(env->isolate(), "TCP");
   t->SetClassName(tcpString);
-  t->InstanceTemplate()->SetInternalFieldCount(1);
+  t->InstanceTemplate()
+    ->SetInternalFieldCount(StreamBase::kStreamBaseFieldCount);
 
   // Init properties
   t->InstanceTemplate()->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "reading"),
                              Boolean::New(env->isolate(), false));
   t->InstanceTemplate()->Set(env->owner_symbol(), Null(env->isolate()));
-  t->InstanceTemplate()->Set(env->onread_string(), Null(env->isolate()));
   t->InstanceTemplate()->Set(env->onconnection_string(), Null(env->isolate()));
 
   t->Inherit(LibuvStreamWrap::GetConstructorTemplate(env));
@@ -109,7 +107,7 @@ void TCPWrap::Initialize(Local<Object> target,
 
   target->Set(env->context(),
               tcpString,
-              t->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              t->GetFunction(env->context()).ToLocalChecked()).Check();
   env->set_tcp_constructor_template(t);
 
   // Create FunctionTemplate for TCPConnectWrap.
@@ -121,7 +119,7 @@ void TCPWrap::Initialize(Local<Object> target,
   cwt->SetClassName(wrapString);
   target->Set(env->context(),
               wrapString,
-              cwt->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              cwt->GetFunction(env->context()).ToLocalChecked()).Check();
 
   // Define constants
   Local<Object> constants = Object::New(env->isolate());
@@ -130,7 +128,7 @@ void TCPWrap::Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(constants, UV_TCP_IPV6ONLY);
   target->Set(context,
               env->constants_string(),
-              constants).FromJust();
+              constants).Check();
 }
 
 
@@ -355,13 +353,13 @@ Local<Object> AddressToJS(Environment* env,
     port = ntohs(a6->sin6_port);
     info->Set(env->context(),
               env->address_string(),
-              OneByteString(env->isolate(), ip)).FromJust();
+              OneByteString(env->isolate(), ip)).Check();
     info->Set(env->context(),
               env->family_string(),
-              env->ipv6_string()).FromJust();
+              env->ipv6_string()).Check();
     info->Set(env->context(),
               env->port_string(),
-              Integer::New(env->isolate(), port)).FromJust();
+              Integer::New(env->isolate(), port)).Check();
     break;
 
   case AF_INET:
@@ -370,19 +368,19 @@ Local<Object> AddressToJS(Environment* env,
     port = ntohs(a4->sin_port);
     info->Set(env->context(),
               env->address_string(),
-              OneByteString(env->isolate(), ip)).FromJust();
+              OneByteString(env->isolate(), ip)).Check();
     info->Set(env->context(),
               env->family_string(),
-              env->ipv4_string()).FromJust();
+              env->ipv4_string()).Check();
     info->Set(env->context(),
               env->port_string(),
-              Integer::New(env->isolate(), port)).FromJust();
+              Integer::New(env->isolate(), port)).Check();
     break;
 
   default:
     info->Set(env->context(),
               env->address_string(),
-              String::Empty(env->isolate())).FromJust();
+              String::Empty(env->isolate())).Check();
   }
 
   return scope.Escape(info);

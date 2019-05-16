@@ -3,12 +3,9 @@
 #include "node_perf.h"
 #include "node_buffer.h"
 #include "node_process.h"
+#include "util-inl.h"
 
 #include <cinttypes>
-
-#ifdef __POSIX__
-#include <sys/time.h>  // gettimeofday
-#endif
 
 namespace node {
 namespace performance {
@@ -37,8 +34,6 @@ using v8::String;
 using v8::Uint32Array;
 using v8::Value;
 
-// Microseconds in a second, as a float.
-#define MICROS_PER_SEC 1e6
 // Microseconds in a millisecond, as a float.
 #define MICROS_PER_MILLIS 1e3
 
@@ -57,23 +52,6 @@ void performance_state::Mark(enum PerformanceMilestone milestone,
       TRACE_EVENT_SCOPE_THREAD, ts / 1000);
 }
 
-double GetCurrentTimeInMicroseconds() {
-#ifdef _WIN32
-// The difference between the Unix Epoch and the Windows Epoch in 100-ns ticks.
-#define TICKS_TO_UNIX_EPOCH 116444736000000000LL
-  FILETIME ft;
-  GetSystemTimeAsFileTime(&ft);
-  uint64_t filetime_int = static_cast<uint64_t>(ft.dwHighDateTime) << 32 |
-                          ft.dwLowDateTime;
-  // FILETIME is measured in terms of 100 ns. Convert that to 1 us (1000 ns).
-  return (filetime_int - TICKS_TO_UNIX_EPOCH) / 10.;
-#else
-  struct timeval tp;
-  gettimeofday(&tp, nullptr);
-  return MICROS_PER_SEC * tp.tv_sec + tp.tv_usec;
-#endif
-}
-
 // Initialize the performance entry object properties
 inline void InitObject(const PerformanceEntry& entry, Local<Object> obj) {
   Environment* env = entry.env();
@@ -88,7 +66,7 @@ inline void InitObject(const PerformanceEntry& entry, Local<Object> obj) {
                                              NewStringType::kNormal)
                              .ToLocalChecked(),
                          attr)
-      .FromJust();
+      .Check();
   obj->DefineOwnProperty(context,
                          env->entry_type_string(),
                          String::NewFromUtf8(isolate,
@@ -96,15 +74,15 @@ inline void InitObject(const PerformanceEntry& entry, Local<Object> obj) {
                                              NewStringType::kNormal)
                              .ToLocalChecked(),
                          attr)
-      .FromJust();
+      .Check();
   obj->DefineOwnProperty(context,
                          env->start_time_string(),
                          Number::New(isolate, entry.startTime()),
-                         attr).FromJust();
+                         attr).Check();
   obj->DefineOwnProperty(context,
                          env->duration_string(),
                          Number::New(isolate, entry.duration()),
-                         attr).FromJust();
+                         attr).Check();
 }
 
 // Create a new PerformanceEntry object
@@ -137,8 +115,7 @@ void PerformanceEntry::Notify(Environment* env,
                               PerformanceEntryType type,
                               Local<Value> object) {
   Context::Scope scope(env->context());
-  AliasedBuffer<uint32_t, Uint32Array>& observers =
-      env->performance_state()->observers;
+  AliasedUint32Array& observers = env->performance_state()->observers;
   if (type != NODE_PERFORMANCE_ENTRY_TYPE_INVALID &&
       observers[type]) {
     node::MakeCallback(env->isolate(),
@@ -196,8 +173,7 @@ void Measure(const FunctionCallbackInfo<Value>& args) {
   Utf8Value startMark(env->isolate(), args[1]);
   Utf8Value endMark(env->isolate(), args[2]);
 
-  AliasedBuffer<double, v8::Float64Array>& milestones =
-      env->performance_state()->milestones;
+  AliasedFloat64Array& milestones = env->performance_state()->milestones;
 
   uint64_t startTimestamp = timeOrigin;
   uint64_t start = GetPerformanceMark(env, *startMark);
@@ -258,8 +234,7 @@ void PerformanceGCCallback(Environment* env, void* ptr) {
   HandleScope scope(env->isolate());
   Local<Context> context = env->context();
 
-  AliasedBuffer<uint32_t, Uint32Array>& observers =
-      env->performance_state()->observers;
+  AliasedUint32Array& observers = env->performance_state()->observers;
   if (observers[NODE_PERFORMANCE_ENTRY_TYPE_GC]) {
     Local<Object> obj;
     if (!entry->ToObject().ToLocal(&obj)) return;
@@ -268,7 +243,7 @@ void PerformanceGCCallback(Environment* env, void* ptr) {
     obj->DefineOwnProperty(context,
                            env->kind_string(),
                            Integer::New(env->isolate(), entry->gckind()),
-                           attr).FromJust();
+                           attr).Check();
     PerformanceEntry::Notify(env, entry->kind(), obj);
   }
 }
@@ -365,8 +340,7 @@ void TimerFunctionCall(const FunctionCallbackInfo<Value>& args) {
     return;
   args.GetReturnValue().Set(ret.ToLocalChecked());
 
-  AliasedBuffer<uint32_t, Uint32Array>& observers =
-      env->performance_state()->observers;
+  AliasedUint32Array& observers = env->performance_state()->observers;
   if (!observers[NODE_PERFORMANCE_ENTRY_TYPE_FUNCTION])
     return;
 
@@ -374,7 +348,7 @@ void TimerFunctionCall(const FunctionCallbackInfo<Value>& args) {
   Local<Object> obj;
   if (!entry.ToObject().ToLocal(&obj)) return;
   for (idx = 0; idx < count; idx++)
-    obj->Set(context, idx, args[idx]).FromJust();
+    obj->Set(context, idx, args[idx]).Check();
   PerformanceEntry::Notify(env, entry.kind(), obj);
 }
 
@@ -539,6 +513,7 @@ bool ELDHistogram::RecordDelta() {
 bool ELDHistogram::Enable() {
   if (enabled_) return false;
   enabled_ = true;
+  prev_ = 0;
   uv_timer_start(timer_,
                  ELDHistogramDelayInterval,
                  resolution_,
@@ -564,10 +539,10 @@ void Initialize(Local<Object> target,
 
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "observerCounts"),
-              state->observers.GetJSArray()).FromJust();
+              state->observers.GetJSArray()).Check();
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "milestones"),
-              state->milestones.GetJSArray()).FromJust();
+              state->milestones.GetJSArray()).Check();
 
   Local<String> performanceEntryString =
       FIXED_ONE_BYTE_STRING(isolate, "PerformanceEntry");
@@ -575,7 +550,7 @@ void Initialize(Local<Object> target,
   Local<FunctionTemplate> pe = FunctionTemplate::New(isolate);
   pe->SetClassName(performanceEntryString);
   Local<Function> fn = pe->GetFunction(context).ToLocalChecked();
-  target->Set(context, performanceEntryString, fn).FromJust();
+  target->Set(context, performanceEntryString, fn).Check();
   env->set_performance_entry_template(fn);
 
   env->SetMethod(target, "clearMark", ClearMark);
@@ -639,7 +614,7 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(eldh, "disable", ELDHistogramDisable);
   env->SetProtoMethod(eldh, "reset", ELDHistogramReset);
   target->Set(context, eldh_classname,
-              eldh->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              eldh->GetFunction(env->context()).ToLocalChecked()).Check();
 }
 
 }  // namespace performance

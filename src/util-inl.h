@@ -27,6 +27,18 @@
 #include <cstring>
 #include "util.h"
 
+// These are defined by <sys/byteorder.h> or <netinet/in.h> on some systems.
+// To avoid warnings, undefine them before redefining them.
+#ifdef BSWAP_2
+# undef BSWAP_2
+#endif
+#ifdef BSWAP_4
+# undef BSWAP_4
+#endif
+#ifdef BSWAP_8
+# undef BSWAP_8
+#endif
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #define BSWAP_2(x) _byteswap_ushort(x)
@@ -186,10 +198,9 @@ inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
 inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            const unsigned char* data,
                                            int length) {
-  return v8::String::NewFromOneByte(isolate,
-                                    reinterpret_cast<const uint8_t*>(data),
-                                    v8::NewStringType::kNormal,
-                                    length).ToLocalChecked();
+  return v8::String::NewFromOneByte(
+             isolate, data, v8::NewStringType::kNormal, length)
+      .ToLocalChecked();
 }
 
 void SwapBytes16(char* data, size_t nbytes) {
@@ -272,6 +283,17 @@ std::string ToLower(const std::string& in) {
   std::string out(in.size(), 0);
   for (size_t i = 0; i < in.size(); ++i)
     out[i] = ToLower(in[i]);
+  return out;
+}
+
+char ToUpper(char c) {
+  return c >= 'a' && c <= 'z' ? (c - 'a') + 'A' : c;
+}
+
+std::string ToUpper(const std::string& in) {
+  std::string out(in.size(), 0);
+  for (size_t i = 0; i < in.size(); ++i)
+    out[i] = ToUpper(in[i]);
   return out;
 }
 

@@ -1,9 +1,10 @@
-#include <limits.h>  // INT_MAX
+#include <climits>  // INT_MAX
 #include <cmath>
 #include <algorithm>
 #define NAPI_EXPERIMENTAL
 #include "js_native_api_v8.h"
 #include "js_native_api.h"
+#include "util-inl.h"
 
 #define CHECK_MAYBE_NOTHING(env, maybe, status) \
   RETURN_STATUS_IF_FALSE((env), !((maybe).IsNothing()), (status))
@@ -227,10 +228,11 @@ class Reference : private Finalizer {
   // from one of Unwrap or napi_delete_reference.
   //
   // When it is called from Unwrap or napi_delete_reference we only
-  // want to do the delete if the finalizer has already run,
+  // want to do the delete if the finalizer has already run or
+  // cannot have been queued to run (ie the reference count is > 0),
   // otherwise we may crash when the finalizer does run.
-  // If the finalizer has not already run delay the delete until
-  // the finalizer runs by not doing the delete
+  // If the finalizer may have been queued and has not already run
+  // delay the delete until the finalizer runs by not doing the delete
   // and setting _delete_self to true so that the finalizer will
   // delete it when it runs.
   //
@@ -238,13 +240,14 @@ class Reference : private Finalizer {
   // the finalizer and _delete_self is set. In this case we
   // know we need to do the deletion so just do it.
   static void Delete(Reference* reference) {
-    if ((reference->_delete_self) || (reference->_finalize_ran)) {
+    if ((reference->RefCount() != 0) ||
+        (reference->_delete_self) ||
+        (reference->_finalize_ran)) {
       delete reference;
     } else {
-      // reduce the reference count to 0 and defer until
-      // finalizer runs
+      // defer until finalizer runs as
+      // it may alread be queued
       reference->_delete_self = true;
-      while (reference->Unref() != 0) {}
     }
   }
 
@@ -395,9 +398,7 @@ struct CallbackBundle {
     // This will be called when the v8::External containing `this` pointer
     // is being GC-ed.
     CallbackBundle* bundle = info.GetParameter();
-    if (bundle != nullptr) {
-      delete bundle;
-    }
+    delete bundle;
   }
 };
 
@@ -870,7 +871,14 @@ napi_status napi_get_property_names(napi_env env,
   v8::Local<v8::Object> obj;
   CHECK_TO_OBJECT(env, context, obj, object);
 
-  auto maybe_propertynames = obj->GetPropertyNames(context);
+  v8::MaybeLocal<v8::Array> maybe_propertynames = obj->GetPropertyNames(
+    context,
+    v8::KeyCollectionMode::kIncludePrototypes,
+    static_cast<v8::PropertyFilter>(
+        v8::PropertyFilter::ONLY_ENUMERABLE |
+        v8::PropertyFilter::SKIP_SYMBOLS),
+    v8::IndexFilter::kIncludeIndices,
+    v8::KeyConversionMode::kConvertToString);
 
   CHECK_MAYBE_EMPTY(env, maybe_propertynames, napi_generic_failure);
 
@@ -1315,12 +1323,15 @@ napi_status napi_create_string_latin1(napi_env env,
                                       napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
+  RETURN_STATUS_IF_FALSE(env,
+      (length == NAPI_AUTO_LENGTH) || length <= INT_MAX,
+      napi_invalid_arg);
 
   auto isolate = env->isolate;
   auto str_maybe =
       v8::String::NewFromOneByte(isolate,
                                  reinterpret_cast<const uint8_t*>(str),
-                                 v8::NewStringType::kInternalized,
+                                 v8::NewStringType::kNormal,
                                  length);
   CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
 
@@ -1334,11 +1345,18 @@ napi_status napi_create_string_utf8(napi_env env,
                                     napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
+  RETURN_STATUS_IF_FALSE(env,
+      (length == NAPI_AUTO_LENGTH) || length <= INT_MAX,
+      napi_invalid_arg);
 
-  v8::Local<v8::String> s;
-  CHECK_NEW_FROM_UTF8_LEN(env, s, str, length);
-
-  *result = v8impl::JsValueFromV8LocalValue(s);
+  auto isolate = env->isolate;
+  auto str_maybe =
+      v8::String::NewFromUtf8(isolate,
+                              str,
+                              v8::NewStringType::kNormal,
+                              static_cast<int>(length));
+  CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
+  *result = v8impl::JsValueFromV8LocalValue(str_maybe.ToLocalChecked());
   return napi_clear_last_error(env);
 }
 
@@ -1348,12 +1366,15 @@ napi_status napi_create_string_utf16(napi_env env,
                                      napi_value* result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
+  RETURN_STATUS_IF_FALSE(env,
+      (length == NAPI_AUTO_LENGTH) || length <= INT_MAX,
+      napi_invalid_arg);
 
   auto isolate = env->isolate;
   auto str_maybe =
       v8::String::NewFromTwoByte(isolate,
                                  reinterpret_cast<const uint16_t*>(str),
-                                 v8::NewStringType::kInternalized,
+                                 v8::NewStringType::kNormal,
                                  length);
   CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
 
@@ -1502,7 +1523,6 @@ static inline napi_status set_error_code(napi_env env,
                                          napi_value code,
                                          const char* code_cstring) {
   if ((code != nullptr) || (code_cstring != nullptr)) {
-    v8::Isolate* isolate = env->isolate;
     v8::Local<v8::Context> context = env->context();
     v8::Local<v8::Object> err_object = error.As<v8::Object>();
 
@@ -1518,33 +1538,6 @@ static inline napi_status set_error_code(napi_env env,
     CHECK_NEW_FROM_UTF8(env, code_key, "code");
 
     v8::Maybe<bool> set_maybe = err_object->Set(context, code_key, code_value);
-    RETURN_STATUS_IF_FALSE(env,
-                           set_maybe.FromMaybe(false),
-                           napi_generic_failure);
-
-    // now update the name to be "name [code]" where name is the
-    // original name and code is the code associated with the Error
-    v8::Local<v8::String> name_string;
-    CHECK_NEW_FROM_UTF8(env, name_string, "");
-    v8::Local<v8::Name> name_key;
-    CHECK_NEW_FROM_UTF8(env, name_key, "name");
-
-    auto maybe_name = err_object->Get(context, name_key);
-    if (!maybe_name.IsEmpty()) {
-      v8::Local<v8::Value> name = maybe_name.ToLocalChecked();
-      if (name->IsString()) {
-        name_string =
-            v8::String::Concat(isolate, name_string, name.As<v8::String>());
-      }
-    }
-    name_string = v8::String::Concat(
-        isolate, name_string, NAPI_FIXED_ONE_BYTE_STRING(isolate, " ["));
-    name_string =
-        v8::String::Concat(isolate, name_string, code_value.As<v8::String>());
-    name_string = v8::String::Concat(
-        isolate, name_string, NAPI_FIXED_ONE_BYTE_STRING(isolate, "]"));
-
-    set_maybe = err_object->Set(context, name_key, name_string);
     RETURN_STATUS_IF_FALSE(env,
                            set_maybe.FromMaybe(false),
                            napi_generic_failure);

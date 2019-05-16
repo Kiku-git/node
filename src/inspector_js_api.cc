@@ -1,8 +1,11 @@
 #include "base_object-inl.h"
 #include "inspector_agent.h"
 #include "inspector_io.h"
+#include "util-inl.h"
 #include "v8.h"
 #include "v8-inspector.h"
+
+#include <memory>
 
 namespace node {
 namespace inspector {
@@ -13,6 +16,7 @@ using v8::Context;
 using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
+using v8::Global;
 using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
@@ -65,8 +69,8 @@ class JSBindingsConnection : public AsyncWrap {
                        : AsyncWrap(env, wrap, PROVIDER_INSPECTORJSBINDING),
                          callback_(env->isolate(), callback) {
     Agent* inspector = env->inspector_agent();
-    session_ = inspector->Connect(std::unique_ptr<JSBindingsSessionDelegate>(
-        new JSBindingsSessionDelegate(env, this)), false);
+    session_ = inspector->Connect(std::make_unique<JSBindingsSessionDelegate>(
+        env, this), false);
   }
 
   void OnMessage(Local<Value> value) {
@@ -114,7 +118,7 @@ class JSBindingsConnection : public AsyncWrap {
 
  private:
   std::unique_ptr<InspectorSession> session_;
-  Persistent<Function> callback_;
+  Global<Function> callback_;
 };
 
 static bool InspectorEnabled(Environment* env) {
@@ -271,8 +275,6 @@ void Initialize(Local<Object> target, Local<Value> unused,
                 Local<Context> context, void* priv) {
   Environment* env = Environment::GetCurrent(context);
 
-  Agent* agent = env->inspector_agent();
-
   v8::Local<v8::Function> consoleCallFunc =
       env->NewFunctionTemplate(InspectorConsoleCall, v8::Local<v8::Signature>(),
                                v8::ConstructorBehavior::kThrow,
@@ -280,13 +282,12 @@ void Initialize(Local<Object> target, Local<Value> unused,
           ->GetFunction(context)
           .ToLocalChecked();
   auto name_string = FIXED_ONE_BYTE_STRING(env->isolate(), "consoleCall");
-  target->Set(context, name_string, consoleCallFunc).FromJust();
+  target->Set(context, name_string, consoleCallFunc).Check();
   consoleCallFunc->SetName(name_string);
 
   env->SetMethod(
       target, "setConsoleExtensionInstaller", SetConsoleExtensionInstaller);
-  if (agent->WillWaitForConnect())
-    env->SetMethod(target, "callAndPauseOnStart", CallAndPauseOnStart);
+  env->SetMethod(target, "callAndPauseOnStart", CallAndPauseOnStart);
   env->SetMethod(target, "open", Open);
   env->SetMethodNoSideEffect(target, "url", Url);
 

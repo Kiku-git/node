@@ -89,7 +89,7 @@ void LibuvStreamWrap::Initialize(Local<Object> target,
 
   target->Set(env->context(),
               wrapString,
-              sw->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              sw->GetFunction(env->context()).ToLocalChecked()).Check();
   env->set_shutdown_wrap_template(sw->InstanceTemplate());
 
   Local<FunctionTemplate> ww =
@@ -101,7 +101,7 @@ void LibuvStreamWrap::Initialize(Local<Object> target,
   ww->Inherit(AsyncWrap::GetConstructorTemplate(env));
   target->Set(env->context(),
               writeWrapString,
-              ww->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              ww->GetFunction(env->context()).ToLocalChecked()).Check();
   env->set_write_wrap_template(ww->InstanceTemplate());
 
   NODE_DEFINE_CONSTANT(target, kReadBytesOrError);
@@ -109,7 +109,7 @@ void LibuvStreamWrap::Initialize(Local<Object> target,
   NODE_DEFINE_CONSTANT(target, kBytesWritten);
   NODE_DEFINE_CONSTANT(target, kLastWriteWasAsync);
   target->Set(context, FIXED_ONE_BYTE_STRING(env->isolate(), "streamBaseState"),
-              env->stream_base_state().GetJSArray()).FromJust();
+              env->stream_base_state().GetJSArray()).Check();
 }
 
 
@@ -123,6 +123,7 @@ LibuvStreamWrap::LibuvStreamWrap(Environment* env,
                  provider),
       StreamBase(env),
       stream_(stream) {
+  StreamBase::AttachToObject(object);
 }
 
 
@@ -134,6 +135,8 @@ Local<FunctionTemplate> LibuvStreamWrap::GetConstructorTemplate(
     tmpl->SetClassName(
         FIXED_ONE_BYTE_STRING(env->isolate(), "LibuvStreamWrap"));
     tmpl->Inherit(HandleWrap::GetConstructorTemplate(env));
+    tmpl->InstanceTemplate()->SetInternalFieldCount(
+        StreamBase::kStreamBaseFieldCount);
     Local<FunctionTemplate> get_write_queue_size =
         FunctionTemplate::New(env->isolate(),
                               GetWriteQueueSize,
@@ -145,7 +148,7 @@ Local<FunctionTemplate> LibuvStreamWrap::GetConstructorTemplate(
         Local<FunctionTemplate>(),
         static_cast<PropertyAttribute>(ReadOnly | DontDelete));
     env->SetProtoMethod(tmpl, "setBlocking", SetBlocking);
-    StreamBase::AddMethods<LibuvStreamWrap>(env, tmpl);
+    StreamBase::AddMethods(env, tmpl);
     env->set_libuv_stream_wrap_ctor_template(tmpl);
   }
   return tmpl;
@@ -271,7 +274,7 @@ void LibuvStreamWrap::OnUvRead(ssize_t nread, const uv_buf_t* buf) {
           ->Set(env()->context(),
                 env()->pending_handle_string(),
                 pending_obj.ToLocalChecked())
-          .FromJust();
+          .Check();
     }
   }
 

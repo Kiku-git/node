@@ -25,8 +25,6 @@ using v8::Value;
 
 extern const uint64_t timeOrigin;
 
-double GetCurrentTimeInMicroseconds();
-
 static inline const char* GetPerformanceMilestoneName(
     enum PerformanceMilestone milestone) {
   switch (milestone) {
@@ -73,7 +71,7 @@ class PerformanceEntry {
                                        startTime_(startTime),
                                        endTime_(endTime) { }
 
-  virtual ~PerformanceEntry() { }
+  virtual ~PerformanceEntry() = default;
 
   virtual v8::MaybeLocal<Object> ToObject() const;
 

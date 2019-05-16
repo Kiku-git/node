@@ -5,7 +5,7 @@
 #include "node_http2.h"
 #include "node_http2_state.h"
 #include "node_perf.h"
-#include "util.h"
+#include "util-inl.h"
 
 #include <algorithm>
 
@@ -119,8 +119,7 @@ Http2Options::Http2Options(Environment* env, nghttp2_session_type type) {
     nghttp2_option_set_builtin_recv_extension_type(options_, NGHTTP2_ORIGIN);
   }
 
-  AliasedBuffer<uint32_t, Uint32Array>& buffer =
-      env->http2_state()->options_buffer;
+  AliasedUint32Array& buffer = env->http2_state()->options_buffer;
   uint32_t flags = buffer[IDX_OPTIONS_FLAGS];
 
   if (flags & (1 << IDX_OPTIONS_MAX_DEFLATE_DYNAMIC_TABLE_SIZE)) {
@@ -200,8 +199,7 @@ Http2Options::Http2Options(Environment* env, nghttp2_session_type type) {
 }
 
 void Http2Session::Http2Settings::Init() {
-  AliasedBuffer<uint32_t, Uint32Array>& buffer =
-      env()->http2_state()->settings_buffer;
+  AliasedUint32Array& buffer = env()->http2_state()->settings_buffer;
   uint32_t flags = buffer[IDX_SETTINGS_COUNT];
 
   size_t n = 0;
@@ -262,8 +260,7 @@ Local<Value> Http2Session::Http2Settings::Pack() {
 void Http2Session::Http2Settings::Update(Environment* env,
                                          Http2Session* session,
                                          get_setting fn) {
-  AliasedBuffer<uint32_t, Uint32Array>& buffer =
-      env->http2_state()->settings_buffer;
+  AliasedUint32Array& buffer = env->http2_state()->settings_buffer;
   buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
       fn(**session, NGHTTP2_SETTINGS_HEADER_TABLE_SIZE);
   buffer[IDX_SETTINGS_MAX_CONCURRENT_STREAMS] =
@@ -282,8 +279,7 @@ void Http2Session::Http2Settings::Update(Environment* env,
 
 // Initializes the shared TypedArray with the default settings values.
 void Http2Session::Http2Settings::RefreshDefaults(Environment* env) {
-  AliasedBuffer<uint32_t, Uint32Array>& buffer =
-      env->http2_state()->settings_buffer;
+  AliasedUint32Array& buffer = env->http2_state()->settings_buffer;
 
   buffer[IDX_SETTINGS_HEADER_TABLE_SIZE] =
       DEFAULT_SETTINGS_HEADER_TABLE_SIZE;
@@ -648,8 +644,7 @@ std::string Http2Session::diagnostic_name() const {
 }
 
 inline bool HasHttp2Observer(Environment* env) {
-  AliasedBuffer<uint32_t, Uint32Array>& observers =
-      env->performance_state()->observers;
+  AliasedUint32Array& observers = env->performance_state()->observers;
   return observers[performance::NODE_PERFORMANCE_ENTRY_TYPE_HTTP2] != 0;
 }
 
@@ -665,8 +660,7 @@ void Http2Stream::EmitStatistics() {
     if (!HasHttp2Observer(env))
       return;
     HandleScope handle_scope(env->isolate());
-    AliasedBuffer<double, Float64Array>& buffer =
-        env->http2_state()->stream_stats_buffer;
+    AliasedFloat64Array& buffer = env->http2_state()->stream_stats_buffer;
     buffer[IDX_STREAM_STATS_ID] = entry->id();
     if (entry->first_byte() != 0) {
       buffer[IDX_STREAM_STATS_TIMETOFIRSTBYTE] =
@@ -705,8 +699,7 @@ void Http2Session::EmitStatistics() {
     if (!HasHttp2Observer(env))
       return;
     HandleScope handle_scope(env->isolate());
-    AliasedBuffer<double, Float64Array>& buffer =
-        env->http2_state()->session_stats_buffer;
+    AliasedFloat64Array& buffer = env->http2_state()->session_stats_buffer;
     buffer[IDX_SESSION_STATS_TYPE] = entry->type();
     buffer[IDX_SESSION_STATS_PINGRTT] = entry->ping_rtt() / 1e6;
     buffer[IDX_SESSION_STATS_FRAMESRECEIVED] = entry->frame_count();
@@ -839,8 +832,7 @@ ssize_t Http2Session::OnCallbackPadding(size_t frameLen,
   Local<Context> context = env()->context();
   Context::Scope context_scope(context);
 
-  AliasedBuffer<uint32_t, Uint32Array>& buffer =
-      env()->http2_state()->padding_buffer;
+  AliasedUint32Array& buffer = env()->http2_state()->padding_buffer;
   buffer[PADDING_BUF_FRAME_LENGTH] = frameLen;
   buffer[PADDING_BUF_MAX_PAYLOAD_LENGTH] = maxPayloadLen;
   buffer[PADDING_BUF_RETURN_VALUE] = frameLen;
@@ -1837,8 +1829,8 @@ bool Http2Session::HasWritesOnSocketForStream(Http2Stream* stream) {
 // (typically a net.Socket or tls.TLSSocket). The lifecycle of the two is
 // tightly coupled with all data transfer between the two happening at the
 // C++ layer via the StreamBase API.
-void Http2Session::Consume(Local<External> external) {
-  StreamBase* stream = static_cast<StreamBase*>(external->Value());
+void Http2Session::Consume(Local<Object> stream_obj) {
+  StreamBase* stream = StreamBase::FromObject(stream_obj);
   stream->PushStreamListener(this);
   Debug(this, "i/o stream consumed");
 }
@@ -1868,6 +1860,7 @@ Http2Stream::Http2Stream(Http2Session* session,
       id_(id),
       current_headers_category_(category) {
   MakeWeak();
+  StreamBase::AttachToObject(GetObject());
   statistics_.start_time = uv_hrtime();
 
   // Limit the number of header pairs
@@ -2386,8 +2379,7 @@ void Http2Session::RefreshState(const FunctionCallbackInfo<Value>& args) {
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
   Debug(session, "refreshing state");
 
-  AliasedBuffer<double, Float64Array>& buffer =
-      env->http2_state()->session_state_buffer;
+  AliasedFloat64Array& buffer = env->http2_state()->session_state_buffer;
 
   nghttp2_session* s = **session;
 
@@ -2428,8 +2420,8 @@ void Http2Session::New(const FunctionCallbackInfo<Value>& args) {
 void Http2Session::Consume(const FunctionCallbackInfo<Value>& args) {
   Http2Session* session;
   ASSIGN_OR_RETURN_UNWRAP(&session, args.Holder());
-  CHECK(args[0]->IsExternal());
-  session->Consume(args[0].As<External>());
+  CHECK(args[0]->IsObject());
+  session->Consume(args[0].As<Object>());
 }
 
 // Destroys the Http2Session instance and renders it unusable
@@ -2529,7 +2521,7 @@ void Http2Session::UpdateChunksSent(const FunctionCallbackInfo<Value>& args) {
 
   session->object()->Set(env->context(),
                          env->chunks_sent_since_last_write_string(),
-                         Integer::NewFromUnsigned(isolate, length)).FromJust();
+                         Integer::NewFromUnsigned(isolate, length)).Check();
 
   args.GetReturnValue().Set(length);
 }
@@ -2669,8 +2661,7 @@ void Http2Stream::RefreshState(const FunctionCallbackInfo<Value>& args) {
 
   Debug(stream, "refreshing state");
 
-  AliasedBuffer<double, Float64Array>& buffer =
-      env->http2_state()->stream_state_buffer;
+  AliasedFloat64Array& buffer = env->http2_state()->stream_state_buffer;
 
   nghttp2_stream* str = **stream;
   nghttp2_session* s = **(stream->session());
@@ -3008,13 +2999,13 @@ void Initialize(Local<Object> target,
   env->SetProtoMethod(stream, "rstStream", Http2Stream::RstStream);
   env->SetProtoMethod(stream, "refreshState", Http2Stream::RefreshState);
   stream->Inherit(AsyncWrap::GetConstructorTemplate(env));
-  StreamBase::AddMethods<Http2Stream>(env, stream);
+  StreamBase::AddMethods(env, stream);
   Local<ObjectTemplate> streamt = stream->InstanceTemplate();
-  streamt->SetInternalFieldCount(1);
+  streamt->SetInternalFieldCount(StreamBase::kStreamBaseFieldCount);
   env->set_http2stream_constructor_template(streamt);
   target->Set(context,
               FIXED_ONE_BYTE_STRING(env->isolate(), "Http2Stream"),
-              stream->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              stream->GetFunction(env->context()).ToLocalChecked()).Check();
 
   Local<FunctionTemplate> session =
       env->NewFunctionTemplate(Http2Session::New);
@@ -3042,7 +3033,7 @@ void Initialize(Local<Object> target,
       Http2Session::RefreshSettings<nghttp2_session_get_remote_settings>);
   target->Set(context,
               http2SessionClassName,
-              session->GetFunction(env->context()).ToLocalChecked()).FromJust();
+              session->GetFunction(env->context()).ToLocalChecked()).Check();
 
   Local<Object> constants = Object::New(isolate);
   Local<Array> name_for_error_code = Array::New(isolate);
@@ -3077,7 +3068,7 @@ void Initialize(Local<Object> target,
   name_for_error_code->Set(env->context(),                              \
                            static_cast<int>(name),                      \
                            FIXED_ONE_BYTE_STRING(isolate,               \
-                                                 #name)).FromJust();
+                                                 #name)).Check();
   NODE_NGHTTP2_ERROR_CODES(V)
 #undef V
 
@@ -3145,10 +3136,10 @@ HTTP_STATUS_CODES(V)
 
   target->Set(context,
               env->constants_string(),
-              constants).FromJust();
+              constants).Check();
   target->Set(context,
               FIXED_ONE_BYTE_STRING(isolate, "nameForErrorCode"),
-              name_for_error_code).FromJust();
+              name_for_error_code).Check();
 }
 }  // namespace http2
 }  // namespace node

@@ -648,14 +648,14 @@ emitter.on('log', () => console.log('log persistently'));
 // Will return a new Array with a single function bound by `.on()` above
 const newListeners = emitter.rawListeners('log');
 
-// logs "log persistently" twice
+// Logs "log persistently" twice
 newListeners[0]();
 emitter.emit('log');
 ```
 
 ## events.once(emitter, name)
 <!-- YAML
-added: REPLACEME
+added: v11.13.0
 -->
 * `emitter` {EventEmitter}
 * `name` {string}

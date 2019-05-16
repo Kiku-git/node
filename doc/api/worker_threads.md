@@ -4,7 +4,7 @@
 
 > Stability: 1 - Experimental
 
-The `worker_threads` module enables the use of threads that execute JS code
+The `worker_threads` module enables the use of threads that execute JavaScript
 in parallel. To access it:
 
 ```js
@@ -70,6 +70,30 @@ if (isMainThread) {
 }
 ```
 
+## worker.moveMessagePortToContext(port, contextifiedSandbox)
+<!-- YAML
+added: v11.13.0
+-->
+
+* `port` {MessagePort} The message port which will be transferred.
+* `contextifiedSandbox` {Object} A [contextified][] object as returned by the
+  `vm.createContext()` method.
+
+* Returns: {MessagePort}
+
+Transfer a `MessagePort` to a different [`vm`][] Context. The original `port`
+object will be rendered unusable, and the returned `MessagePort` instance will
+take its place.
+
+The returned `MessagePort` will be an object in the target context, and will
+inherit from its global `Object` class. Objects passed to the
+[`port.onmessage()`][] listener will also be created in the target context
+and inherit from its global `Object` class.
+
+However, the created `MessagePort` will no longer inherit from
+[`EventEmitter`][], and only [`port.onmessage()`][] can be used to receive
+events using it.
+
 ## worker.parentPort
 <!-- YAML
 added: v10.5.0
@@ -99,6 +123,25 @@ if (isMainThread) {
     parentPort.postMessage(message);
   });
 }
+```
+
+## worker.SHARE_ENV
+<!-- YAML
+added: v11.14.0
+-->
+
+* {symbol}
+
+A special value that can be passed as the `env` option of the [`Worker`][]
+constructor, to indicate that the current thread and the Worker thread should
+share read and write access to the same set of environment variables.
+
+```js
+const { Worker, SHARE_ENV } = require('worker_threads');
+new Worker('process.env.SET_IN_WORKER = "foo"', { eval: true, env: SHARE_ENV })
+  .on('exit', () => {
+    console.log(process.env.SET_IN_WORKER);  // Prints 'foo'.
+  });
 ```
 
 ## worker.threadId
@@ -319,6 +362,9 @@ listeners are attached.
 
 This method exists for parity with the Web `MessagePort` API. In Node.js,
 it is only useful for ignoring messages when no event listener is present.
+Node.js also diverges in its handling of `.onmessage`. Setting it will
+automatically call `.start()`, but unsetting it will let messages queue up
+until a new handler is set or the port is discarded.
 
 ### port.unref()
 <!-- YAML
@@ -348,12 +394,16 @@ Notable differences inside a Worker environment are:
 - The [`process.stdin`][], [`process.stdout`][] and [`process.stderr`][]
   may be redirected by the parent thread.
 - The [`require('worker_threads').isMainThread`][] property is set to `false`.
-- The [`require('worker_threads').parentPort`][] message port is available,
+- The [`require('worker_threads').parentPort`][] message port is available.
 - [`process.exit()`][] does not stop the whole program, just the single thread,
   and [`process.abort()`][] is not available.
 - [`process.chdir()`][] and `process` methods that set group or user ids
   are not available.
-- [`process.env`][] is a read-only reference to the environment variables.
+- [`process.env`][] is a copy of the parent thread's environment variables,
+  unless otherwise specified. Changes to one copy will not be visible in other
+  threads, and will not be visible to native add-ons (unless
+  [`worker.SHARE_ENV`][] has been passed as the `env` option to the
+  [`Worker`][] constructor).
 - [`process.title`][] cannot be modified.
 - Signals will not be delivered through [`process.on('...')`][Signals events].
 - Execution may stop at any point as a result of [`worker.terminate()`][]
@@ -412,13 +462,18 @@ if (isMainThread) {
   If `options.eval` is `true`, this is a string containing JavaScript code
   rather than a path.
 * `options` {Object}
+  * `env` {Object} If set, specifies the initial value of `process.env` inside
+    the Worker thread. As a special value, [`worker.SHARE_ENV`][] may be used
+    to specify that the parent thread and the child thread should share their
+    environment variables; in that case, changes to one thread’s `process.env`
+    object will affect the other thread as well. **Default:** `process.env`.
   * `eval` {boolean} If `true`, interpret the first argument to the constructor
     as a script that is executed once the worker is online.
-  * `workerData` {any} Any JavaScript value that will be cloned and made
-    available as [`require('worker_threads').workerData`][]. The cloning will
-    occur as described in the [HTML structured clone algorithm][], and an error
-    will be thrown if the object cannot be cloned (e.g. because it contains
-    `function`s).
+  * `execArgv` {string[]} List of node CLI options passed to the worker.
+    V8 options (such as `--max-old-space-size`) and options that affect the
+    process (such as `--title`) are not supported. If set, this will be provided
+    as [`process.execArgv`][] inside the worker. By default, options will be
+    inherited from the parent thread.
   * `stdin` {boolean} If this is set to `true`, then `worker.stdin` will
     provide a writable stream whose contents will appear as `process.stdin`
     inside the Worker. By default, no data is provided.
@@ -426,11 +481,11 @@ if (isMainThread) {
     not automatically be piped through to `process.stdout` in the parent.
   * `stderr` {boolean} If this is set to `true`, then `worker.stderr` will
     not automatically be piped through to `process.stderr` in the parent.
-  * `execArgv` {string[]} List of node CLI options passed to the worker.
-    V8 options (such as `--max-old-space-size`) and options that affect the
-    process (such as `--title`) are not supported. If set, this will be provided
-    as [`process.execArgv`][] inside the worker. By default, options will be
-    inherited from the parent thread.
+  * `workerData` {any} Any JavaScript value that will be cloned and made
+    available as [`require('worker_threads').workerData`][]. The cloning will
+    occur as described in the [HTML structured clone algorithm][], and an error
+    will be thrown if the object cannot be cloned (e.g. because it contains
+    `function`s).
 
 ### Event: 'error'
 <!-- YAML
@@ -580,6 +635,7 @@ active handle in the event system. If the worker is already `unref()`ed calling
 [`Worker`]: #worker_threads_class_worker
 [`cluster` module]: cluster.html
 [`port.on('message')`]: #worker_threads_event_message
+[`port.onmessage()`]: https://developer.mozilla.org/en-US/docs/Web/API/MessagePort/onmessage
 [`port.postMessage()`]: #worker_threads_port_postmessage_value_transferlist
 [`process.abort()`]: process.html#process_process_abort
 [`process.chdir()`]: process.html#process_process_chdir_directory
@@ -597,8 +653,10 @@ active handle in the event system. If the worker is already `unref()`ed calling
 [`require('worker_threads').threadId`]: #worker_threads_worker_threadid
 [`require('worker_threads').workerData`]: #worker_threads_worker_workerdata
 [`trace_events`]: tracing.html
+[`vm`]: vm.html
 [`worker.on('message')`]: #worker_threads_event_message_1
 [`worker.postMessage()`]: #worker_threads_worker_postmessage_value_transferlist
+[`worker.SHARE_ENV`]: #worker_threads_worker_share_env
 [`worker.terminate()`]: #worker_threads_worker_terminate_callback
 [`worker.threadId`]: #worker_threads_worker_threadid_1
 [Addons worker support]: addons.html#addons_worker_support
@@ -607,4 +665,5 @@ active handle in the event system. If the worker is already `unref()`ed calling
 [Web Workers]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API
 [browser `MessagePort`]: https://developer.mozilla.org/en-US/docs/Web/API/MessagePort
 [child processes]: child_process.html
+[contextified]: vm.html#vm_what_does_it_mean_to_contextify_an_object
 [v8.serdes]: v8.html#v8_serialization_api

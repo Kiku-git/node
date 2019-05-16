@@ -237,7 +237,7 @@ if (cluster.isMaster) {
     res.writeHead(200);
     res.end('hello world\n');
 
-    // notify master about the request
+    // Notify master about the request
     process.send({ cmd: 'notifyRequest' });
   }).listen(8000);
 }
@@ -315,7 +315,7 @@ if (cluster.isMaster) {
 } else if (cluster.isWorker) {
   const net = require('net');
   const server = net.createServer((socket) => {
-    // connections never end
+    // Connections never end
   });
 
   server.listen(8000);

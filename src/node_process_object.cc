@@ -13,6 +13,7 @@ using v8::Context;
 using v8::DEFAULT;
 using v8::EscapableHandleScope;
 using v8::Function;
+using v8::FunctionCallbackInfo;
 using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Integer;
@@ -84,20 +85,6 @@ MaybeLocal<Object> CreateProcessObject(
     return MaybeLocal<Object>();
   }
 
-  // process.title
-  auto title_string = FIXED_ONE_BYTE_STRING(env->isolate(), "title");
-  CHECK(process
-            ->SetAccessor(
-                env->context(),
-                title_string,
-                ProcessTitleGetter,
-                env->owns_process_state() ? ProcessTitleSetter : nullptr,
-                env->as_callback_data(),
-                DEFAULT,
-                None,
-                SideEffectType::kHasNoSideEffect)
-            .FromJust());
-
   // process.version
   READONLY_PROPERTY(process,
                     "version",
@@ -140,127 +127,56 @@ MaybeLocal<Object> CreateProcessObject(
 #endif  // _WIN32
 #endif  // NODE_HAS_RELEASE_URLS
 
+  // process._rawDebug: may be overwritten later in JS land, but should be
+  // availbale from the begining for debugging purposes
+  env->SetMethod(process, "_rawDebug", RawDebug);
+
+  return scope.Escape(process);
+}
+
+void PatchProcessObject(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext();
+  Environment* env = Environment::GetCurrent(context);
+  CHECK(args[0]->IsObject());
+  Local<Object> process = args[0].As<Object>();
+
+  // process.title
+  CHECK(process
+            ->SetAccessor(
+                context,
+                FIXED_ONE_BYTE_STRING(isolate, "title"),
+                ProcessTitleGetter,
+                env->owns_process_state() ? ProcessTitleSetter : nullptr,
+                env->as_callback_data(),
+                DEFAULT,
+                None,
+                SideEffectType::kHasNoSideEffect)
+            .FromJust());
+
   // process.argv
-  process->Set(env->context(),
-               FIXED_ONE_BYTE_STRING(env->isolate(), "argv"),
-               ToV8Value(env->context(), args).ToLocalChecked()).FromJust();
+  process->Set(context,
+               FIXED_ONE_BYTE_STRING(isolate, "argv"),
+               ToV8Value(context, env->argv()).ToLocalChecked()).Check();
 
   // process.execArgv
-  process->Set(env->context(),
-               FIXED_ONE_BYTE_STRING(env->isolate(), "execArgv"),
-               ToV8Value(env->context(), exec_args)
-                   .ToLocalChecked()).FromJust();
-
-  Local<Object> env_var_proxy;
-  if (!CreateEnvVarProxy(context, isolate, env->as_callback_data())
-           .ToLocal(&env_var_proxy))
-    return MaybeLocal<Object>();
-
-  // process.env
-  process
-      ->Set(env->context(),
-            FIXED_ONE_BYTE_STRING(env->isolate(), "env"),
-            env_var_proxy)
-      .FromJust();
+  process->Set(context,
+               FIXED_ONE_BYTE_STRING(isolate, "execArgv"),
+               ToV8Value(context, env->exec_argv())
+                   .ToLocalChecked()).Check();
 
   READONLY_PROPERTY(process, "pid",
-                    Integer::New(env->isolate(), uv_os_getpid()));
+                    Integer::New(isolate, uv_os_getpid()));
 
-  CHECK(process->SetAccessor(env->context(),
-                             FIXED_ONE_BYTE_STRING(env->isolate(), "ppid"),
+  CHECK(process->SetAccessor(context,
+                             FIXED_ONE_BYTE_STRING(isolate, "ppid"),
                              GetParentProcessId).FromJust());
-
-  // TODO(joyeecheung): the following process properties that are set using
-  // parsed CLI flags should be migrated to `internal/options` in JS land.
-
-  // -e, --eval
-  // TODO(addaleax): Remove this.
-  if (env->options()->has_eval_string) {
-    READONLY_PROPERTY(process,
-                      "_eval",
-                      String::NewFromUtf8(
-                          env->isolate(),
-                          env->options()->eval_string.c_str(),
-                          NewStringType::kNormal).ToLocalChecked());
-  }
-
-  // -p, --print
-  // TODO(addaleax): Remove this.
-  if (env->options()->print_eval) {
-    READONLY_PROPERTY(process, "_print_eval", True(env->isolate()));
-  }
-
-  // -c, --check
-  // TODO(addaleax): Remove this.
-  if (env->options()->syntax_check_only) {
-    READONLY_PROPERTY(process, "_syntax_check_only", True(env->isolate()));
-  }
-
-  // -i, --interactive
-  // TODO(addaleax): Remove this.
-  if (env->options()->force_repl) {
-    READONLY_PROPERTY(process, "_forceRepl", True(env->isolate()));
-  }
-
-  // -r, --require
-  // TODO(addaleax): Remove this.
-  const std::vector<std::string>& preload_modules =
-      env->options()->preload_modules;
-  if (!preload_modules.empty()) {
-    READONLY_PROPERTY(process,
-                      "_preload_modules",
-                      ToV8Value(env->context(), preload_modules)
-                          .ToLocalChecked());
-  }
-
-  // --no-deprecation
-  if (env->options()->no_deprecation) {
-    READONLY_PROPERTY(process, "noDeprecation", True(env->isolate()));
-  }
-
-  // --no-warnings
-  if (env->options()->no_warnings) {
-    READONLY_PROPERTY(process, "noProcessWarnings", True(env->isolate()));
-  }
-
-  // --trace-warnings
-  if (env->options()->trace_warnings) {
-    READONLY_PROPERTY(process, "traceProcessWarnings", True(env->isolate()));
-  }
-
-  // --throw-deprecation
-  if (env->options()->throw_deprecation) {
-    READONLY_PROPERTY(process, "throwDeprecation", True(env->isolate()));
-  }
-
-  // --prof-process
-  // TODO(addaleax): Remove this.
-  if (env->options()->prof_process) {
-    READONLY_PROPERTY(process, "profProcess", True(env->isolate()));
-  }
-
-  // --trace-deprecation
-  if (env->options()->trace_deprecation) {
-    READONLY_PROPERTY(process, "traceDeprecation", True(env->isolate()));
-  }
-
-  // --inspect-brk
-  if (env->options()->debug_options().wait_for_connect()) {
-    READONLY_DONT_ENUM_PROPERTY(process,
-                                "_breakFirstLine", True(env->isolate()));
-  }
-
-  // --inspect-brk-node
-  if (env->options()->debug_options().break_node_first_line) {
-    READONLY_DONT_ENUM_PROPERTY(process,
-                                "_breakNodeFirstLine", True(env->isolate()));
-  }
 
   // --security-revert flags
 #define V(code, _, __)                                                        \
   do {                                                                        \
     if (IsReverted(SECURITY_REVERT_ ## code)) {                               \
-      READONLY_PROPERTY(process, "REVERT_" #code, True(env->isolate()));      \
+      READONLY_PROPERTY(process, "REVERT_" #code, True(isolate));             \
     }                                                                         \
   } while (0);
   SECURITY_REVERSIONS(V)
@@ -274,7 +190,7 @@ MaybeLocal<Object> CreateProcessObject(
     if (uv_exepath(exec_path_buf, &exec_path_len) == 0) {
       exec_path = std::string(exec_path_buf, exec_path_len);
     } else {
-      exec_path = args[0];
+      exec_path = env->argv()[0];
     }
     // On OpenBSD process.execPath will be relative unless we
     // get the full path before process.execPath is used.
@@ -286,33 +202,27 @@ MaybeLocal<Object> CreateProcessObject(
       CHECK_NOT_NULL(req.ptr);
       exec_path = std::string(static_cast<char*>(req.ptr));
     }
+    uv_fs_req_cleanup(&req);
 #endif
     process
-        ->Set(env->context(),
-              FIXED_ONE_BYTE_STRING(env->isolate(), "execPath"),
-              String::NewFromUtf8(env->isolate(),
+        ->Set(context,
+              FIXED_ONE_BYTE_STRING(isolate, "execPath"),
+              String::NewFromUtf8(isolate,
                                   exec_path.c_str(),
                                   NewStringType::kInternalized,
                                   exec_path.size())
                   .ToLocalChecked())
-        .FromJust();
+        .Check();
   }
 
   // process.debugPort
-  auto debug_port_string = FIXED_ONE_BYTE_STRING(env->isolate(), "debugPort");
   CHECK(process
-            ->SetAccessor(env->context(),
-                          debug_port_string,
+            ->SetAccessor(context,
+                          FIXED_ONE_BYTE_STRING(isolate, "debugPort"),
                           DebugPortGetter,
                           env->owns_process_state() ? DebugPortSetter : nullptr,
                           env->as_callback_data())
             .FromJust());
-
-  // process._rawDebug: may be overwritten later in JS land, but should be
-  // availbale from the begining for debugging purposes
-  env->SetMethod(process, "_rawDebug", RawDebug);
-
-  return scope.Escape(process);
 }
 
 }  // namespace node

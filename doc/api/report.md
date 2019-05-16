@@ -24,14 +24,15 @@ is provided below for reference.
   "header": {
     "event": "exception",
     "trigger": "Exception",
-    "filename": "report.20181221.005011.8974.001.json",
+    "filename": "report.20181221.005011.8974.0.001.json",
     "dumpEventTime": "2018-12-21T00:50:11Z",
     "dumpEventTimeStamp": "1545371411331",
     "processId": 8974,
+    "cwd": "/home/nodeuser/project/node",
     "commandLine": [
       "/home/nodeuser/project/node/out/Release/node",
       "--experimental-report",
-      "--diagnostic-report-uncaught-exception",
+      "--report-uncaught-exception",
       "/home/nodeuser/project/node/test/report/test-exception.js",
       "child"
     ],
@@ -189,13 +190,13 @@ is provided below for reference.
       "details": ""
     },
     {
-      "repeat": 0,
-      "firesInMsFromNow": 94403548320796,
-      "expired": true,
       "type": "timer",
       "is_active": false,
       "is_referenced": false,
-      "address": "0x00007fff5fbfeab0"
+      "address": "0x00007fff5fbfeab0",
+      "repeat": 0,
+      "firesInMsFromNow": 94403548320796,
+      "expired": true
     },
     {
       "type": "check",
@@ -228,36 +229,36 @@ is provided below for reference.
       "address": "0x000000010188f2e0"
     },
     {
+      "type": "tty",
+      "is_active": false,
+      "is_referenced": true,
+      "address": "0x000055b581db0e18",
       "width": 204,
       "height": 55,
       "fd": 17,
       "writeQueueSize": 0,
       "readable": true,
-      "writable": true,
-      "type": "tty",
-      "is_active": false,
-      "is_referenced": true,
-      "address": "0x000055b581db0e18"
+      "writable": true
     },
     {
-      "signum": 28,
-      "signal": "SIGWINCH",
       "type": "signal",
       "is_active": true,
       "is_referenced": false,
-      "address": "0x000055b581d80010"
+      "address": "0x000055b581d80010",
+      "signum": 28,
+      "signal": "SIGWINCH"
     },
     {
+      "type": "tty",
+      "is_active": true,
+      "is_referenced": true,
+      "address": "0x000055b581df59f8",
       "width": 204,
       "height": 55,
       "fd": 19,
       "writeQueueSize": 0,
       "readable": true,
-      "writable": true,
-      "type": "tty",
-      "is_active": true,
-      "is_referenced": true,
-      "address": "0x000055b581df59f8"
+      "writable": true
     },
     {
       "type": "loop",
@@ -360,19 +361,19 @@ is provided below for reference.
 ## Usage
 
 ```bash
-node --experimental-report --diagnostic-report-uncaught-exception \
-  --diagnostic-report-on-signal --diagnostic-report-on-fatalerror app.js
+node --experimental-report --report-uncaught-exception \
+  --report-on-signal --report-on-fatalerror app.js
 ```
 
 * `--experimental-report` Enables the diagnostic report feature.
  In the absence of this flag, use of all other related options will result in
  an error.
 
-* `--diagnostic-report-uncaught-exception` Enables report to be generated on
+* `--report-uncaught-exception` Enables report to be generated on
 un-caught exceptions. Useful when inspecting JavaScript stack in conjunction
 with native stack and other runtime environment data.
 
-* `--diagnostic-report-on-signal` Enables report to be generated upon receiving
+* `--report-on-signal` Enables report to be generated upon receiving
 the specified (or predefined) signal to the running Node.js process. (See below
 on how to modify the signal that triggers the report.) Default signal is `SIGUSR2`.
 Useful when a report needs to be triggered from another program.
@@ -386,32 +387,32 @@ signal. However, if `SIGUSR2` is already used for other purposes, then this
 flag helps to change the signal for report generation and preserve the original
 meaning of `SIGUSR2` for the said purposes.
 
-* `--diagnostic-report-on-fatalerror` Enables the report to be triggered on
+* `--report-on-fatalerror` Enables the report to be triggered on
 fatal errors (internal errors within the Node.js runtime, such as out of memory)
 that leads to termination of the application. Useful to inspect various
 diagnostic data elements such as heap, stack, event loop state, resource
 consumption etc. to reason about the fatal error.
 
-* `--diagnostic-report-directory` Location at which the report will be
+* `--report-directory` Location at which the report will be
 generated.
 
-* `--diagnostic-report-filename` Name of the file to which the report will be
+* `--report-filename` Name of the file to which the report will be
 written.
 
-* `--diagnostic-report-signal` Sets or resets the signal for report generation
+* `--report-signal` Sets or resets the signal for report generation
 (not supported on Windows). Default signal is `SIGUSR2`.
 
 A report can also be triggered via an API call from a JavaScript application:
 
 ```js
-process.report.triggerReport();
+process.report.writeReport();
 ```
 
 This function takes an optional additional argument `filename`, which is
 the name of a file into which the report is written.
 
 ```js
-process.report.triggerReport('./foo.json');
+process.report.writeReport('./foo.json');
 ```
 
 This function takes an optional additional argument `err` - an `Error` object
@@ -424,19 +425,19 @@ as where it was handled.
 try {
   process.chdir('/non-existent-path');
 } catch (err) {
-  process.report.triggerReport(err);
+  process.report.writeReport(err);
 }
 // Any other code
 ```
 
-If both filename and error object are passed to `triggerReport()` the
+If both filename and error object are passed to `writeReport()` the
 error object must be the second parameter.
 
 ```js
 try {
   process.chdir('/non-existent-path');
 } catch (err) {
-  process.report.triggerReport(filename, err);
+  process.report.writeReport(filename, err);
 }
 // Any other code
 ```
@@ -470,8 +471,8 @@ triggered using the Node.js REPL:
 
 ```raw
 $ node
-> process.report.triggerReport();
-Writing Node.js report to file: report.20181126.091102.8480.001.json
+> process.report.writeReport();
+Writing Node.js report to file: report.20181126.091102.8480.0.001.json
 Node.js report completed
 >
 ```
@@ -533,10 +534,10 @@ Configuration on module initialization is also available via
 environment variables:
 
 ```bash
-NODE_OPTIONS="--experimental-report --diagnostic-report-uncaught-exception \
-  --diagnostic-report-on-fatalerror --diagnostic-report-on-signal \
-  --diagnostic-report-signal=SIGUSR2  --diagnostic-report-filename=./report.json \
-  --diagnostic-report-directory=/home/nodeuser"
+NODE_OPTIONS="--experimental-report --report-uncaught-exception \
+  --report-on-fatalerror --report-on-signal \
+  --report-signal=SIGUSR2  --report-filename=./report.json \
+  --report-directory=/home/nodeuser"
 ```
 
 Specific API documentation can be found under

@@ -41,7 +41,7 @@ tmpdir.refresh();
 let root = '/';
 let assertEqualPath = assert.strictEqual;
 if (common.isWindows) {
-  // something like "C:\\"
+  // Something like "C:\\"
   root = process.cwd().substr(0, 3);
   assertEqualPath = function(path_left, path_right, message) {
     assert
@@ -365,7 +365,7 @@ function test_upone_actual(realpath, realpathSync, cb) {
   cb();
 }
 
-// going up with .. multiple times
+// Going up with .. multiple times
 // .
 // `-- a/
 //     |-- b/
@@ -407,7 +407,7 @@ function test_up_multiple(realpath, realpathSync, cb) {
 }
 
 
-// absolute symlinks with children.
+// Absolute symlinks with children.
 // .
 // `-- a/
 //     |-- b/

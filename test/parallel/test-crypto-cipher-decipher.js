@@ -36,7 +36,7 @@ function testCipher1(key) {
 
   assert.strictEqual(txt, plaintext);
 
-  // streaming cipher interface
+  // Streaming cipher interface
   // NB: In real life, it's not guaranteed that you can get all of it
   // in a single read() like this.  But in this case, we know it's
   // quite small, so there's no harm.
@@ -53,16 +53,16 @@ function testCipher1(key) {
 
 
 function testCipher2(key) {
-  // encryption and decryption with Base64
-  // reported in https://github.com/joyent/node/issues/738
+  // Encryption and decryption with Base64.
+  // Reported in https://github.com/joyent/node/issues/738
   const plaintext =
       '32|RmVZZkFUVmpRRkp0TmJaUm56ZU9qcnJkaXNNWVNpTTU*|iXmckfRWZBGWWELw' +
       'eCBsThSsfUHLeRe0KCsK8ooHgxie0zOINpXxfZi/oNG7uq9JWFVCk70gfzQH8ZUJ' +
       'jAfaFg**';
   const cipher = crypto.createCipher('aes256', key);
 
-  // Encrypt plaintext which is in utf8 format
-  // to a ciphertext which will be in Base64
+  // Encrypt plaintext which is in utf8 format to a ciphertext which will be in
+  // Base64.
   let ciph = cipher.update(plaintext, 'utf8', 'base64');
   ciph += cipher.final('base64');
 

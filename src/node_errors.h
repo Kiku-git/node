@@ -4,8 +4,8 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "node.h"
-#include "util-inl.h"
-#include "env-inl.h"
+#include "util.h"
+#include "env.h"
 #include "v8.h"
 
 // Use ostringstream to print exact-width integer types
@@ -14,10 +14,14 @@
 
 namespace node {
 
+using v8::Local;
+using v8::Message;
+using v8::Value;
+
 enum ErrorHandlingMode { CONTEXTIFY_ERROR, FATAL_ERROR, MODULE_ERROR };
 void AppendExceptionLine(Environment* env,
-                         v8::Local<v8::Value> er,
-                         v8::Local<v8::Message> message,
+                         Local<Value> er,
+                         Local<Message> message,
                          enum ErrorHandlingMode mode);
 
 [[noreturn]] void FatalError(const char* location, const char* message);
@@ -27,11 +31,18 @@ void PrintErrorString(const char* format, ...);
 
 void ReportException(Environment* env, const v8::TryCatch& try_catch);
 
-void FatalException(v8::Isolate* isolate,
-                    v8::Local<v8::Value> error,
-                    v8::Local<v8::Message> message);
+void ReportException(Environment* env,
+                     Local<Value> er,
+                     Local<Message> message);
 
-void FatalException(const v8::FunctionCallbackInfo<v8::Value>& args);
+void FatalException(v8::Isolate* isolate,
+                    Local<Value> error,
+                    Local<Message> message);
+
+void FatalException(v8::Isolate* isolate,
+                    Local<Value> error,
+                    Local<Message> message,
+                    bool from_promise);
 
 // Helpers to construct errors similar to the ones provided by
 // lib/internal/errors.js.
@@ -44,16 +55,18 @@ void FatalException(const v8::FunctionCallbackInfo<v8::Value>& args);
   V(ERR_BUFFER_OUT_OF_BOUNDS, RangeError)                                    \
   V(ERR_BUFFER_TOO_LARGE, Error)                                             \
   V(ERR_CANNOT_TRANSFER_OBJECT, TypeError)                                   \
-  V(ERR_CLOSED_MESSAGE_PORT, Error)                                          \
   V(ERR_CONSTRUCT_CALL_REQUIRED, Error)                                      \
   V(ERR_INVALID_ARG_VALUE, TypeError)                                        \
   V(ERR_INVALID_ARG_TYPE, TypeError)                                         \
+  V(ERR_INVALID_MODULE_SPECIFIER, TypeError)                                 \
+  V(ERR_INVALID_PACKAGE_CONFIG, SyntaxError)                                 \
   V(ERR_INVALID_TRANSFER_OBJECT, TypeError)                                  \
   V(ERR_MEMORY_ALLOCATION_FAILED, Error)                                     \
   V(ERR_MISSING_ARGS, TypeError)                                             \
   V(ERR_MISSING_MESSAGE_PORT_IN_TRANSFER_LIST, TypeError)                    \
-  V(ERR_MISSING_MODULE, Error)                                               \
+  V(ERR_MISSING_PASSPHRASE, TypeError)                                       \
   V(ERR_MISSING_PLATFORM_FOR_WORKER, Error)                                  \
+  V(ERR_MODULE_NOT_FOUND, Error)                                             \
   V(ERR_OUT_OF_RANGE, RangeError)                                            \
   V(ERR_SCRIPT_EXECUTION_INTERRUPTED, Error)                                 \
   V(ERR_SCRIPT_EXECUTION_TIMEOUT, Error)                                     \
@@ -70,7 +83,7 @@ void FatalException(const v8::FunctionCallbackInfo<v8::Value>& args);
         v8::Exception::type(js_msg)->ToObject(                                \
             isolate->GetCurrentContext()).ToLocalChecked();                   \
     e->Set(isolate->GetCurrentContext(), OneByteString(isolate, "code"),      \
-           js_code).FromJust();                                               \
+           js_code).Check();                                                  \
     return e;                                                                 \
   }                                                                           \
   inline void THROW_ ## code(v8::Isolate* isolate, const char* message) {     \
@@ -88,7 +101,6 @@ void FatalException(const v8::FunctionCallbackInfo<v8::Value>& args);
   V(ERR_BUFFER_CONTEXT_NOT_AVAILABLE,                                        \
     "Buffer is not available for the current Context")                       \
   V(ERR_CANNOT_TRANSFER_OBJECT, "Cannot transfer object of unsupported type")\
-  V(ERR_CLOSED_MESSAGE_PORT, "Cannot send data on closed MessagePort")       \
   V(ERR_CONSTRUCT_CALL_REQUIRED, "Cannot call constructor without `new`")    \
   V(ERR_INVALID_TRANSFER_OBJECT, "Found invalid object in transferList")     \
   V(ERR_MEMORY_ALLOCATION_FAILED, "Failed to allocate memory")               \
@@ -179,6 +191,8 @@ class TryCatchScope : public v8::TryCatch {
 };
 
 const char* errno_string(int errorno);
+void PerIsolateMessageListener(v8::Local<v8::Message> message,
+                               v8::Local<v8::Value> error);
 
 }  // namespace errors
 

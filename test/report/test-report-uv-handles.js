@@ -34,7 +34,10 @@ if (process.argv[2] === 'child') {
   // Datagram socket for udp uv handles.
   const dgram = require('dgram');
   const udp_socket = dgram.createSocket('udp4');
-  udp_socket.bind({});
+  const connected_udp_socket = dgram.createSocket('udp4');
+  udp_socket.bind({}, common.mustCall(() => {
+    connected_udp_socket.connect(udp_socket.address().port);
+  }));
 
   // Simple server/connection to create tcp uv handles.
   const server = http.createServer((req, res) => {
@@ -50,6 +53,7 @@ if (process.argv[2] === 'child') {
       server.close(() => {
         if (watcher) watcher.close();
         fs.unwatchFile(__filename);
+        connected_udp_socket.close();
         udp_socket.close();
         process.removeListener('disconnect', exit);
       });
@@ -81,7 +85,7 @@ if (process.argv[2] === 'child') {
   const report_msg = 'Report files were written: unexpectedly';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   child.on('exit', common.mustCall((code, signal) => {
-    assert.deepStrictEqual(code, 0, 'Process exited unexpectedly with code' +
+    assert.deepStrictEqual(code, 0, 'Process exited unexpectedly with code: ' +
                            `${code}`);
     assert.deepStrictEqual(signal, null, 'Process should have exited cleanly,' +
                             ` but did not: ${signal}`);
@@ -93,10 +97,27 @@ if (process.argv[2] === 'child') {
     const reports = helper.findReports(child.pid, tmpdir.path);
     assert.deepStrictEqual(reports, [], report_msg, reports);
 
+    // Test libuv handle key order
+    {
+      const get_libuv = /"libuv":\s\[([\s\S]*?)\]/gm;
+      const get_handle_inner = /{([\s\S]*?),*?}/gm;
+      const libuv_handles_str = get_libuv.exec(stdout)[1];
+      const libuv_handles_array = libuv_handles_str.match(get_handle_inner);
+      for (const i of libuv_handles_array) {
+        // Exclude nested structure
+        if (i.includes('type')) {
+          const handle_keys = i.match(/(".*"):/gm);
+          assert(handle_keys[0], 'type');
+          assert(handle_keys[1], 'is_active');
+        }
+      }
+    }
+
     const report = JSON.parse(stdout);
     const prefix = common.isWindows ? '\\\\?\\' : '';
     const expected_filename = `${prefix}${__filename}`;
     const found_tcp = [];
+    const found_udp = [];
     // Functions are named to aid debugging when they are not called.
     const validators = {
       fs_event: common.mustCall(function fs_event_validator(handle) {
@@ -138,10 +159,17 @@ if (process.argv[2] === 'child') {
         assert.strictEqual(handle.repeat, 0);
       }),
       udp: common.mustCall(function udp_validator(handle) {
-        assert.strictEqual(handle.localEndpoint.port,
-                           child_data.udp_address.port);
+        if (handle.remoteEndpoint === null) {
+          assert.strictEqual(handle.localEndpoint.port,
+                             child_data.udp_address.port);
+          found_udp.push('unconnected');
+        } else {
+          assert.strictEqual(handle.remoteEndpoint.port,
+                             child_data.udp_address.port);
+          found_udp.push('connected');
+        }
         assert(handle.is_referenced);
-      }),
+      }, 2),
     };
     console.log(report.libuv);
     for (const entry of report.libuv) {
@@ -149,6 +177,9 @@ if (process.argv[2] === 'child') {
     }
     for (const socket of ['listening', 'inbound', 'outbound']) {
       assert(found_tcp.includes(socket), `${socket} TCP socket was not found`);
+    }
+    for (const socket of ['connected', 'unconnected']) {
+      assert(found_udp.includes(socket), `${socket} UDP socket was not found`);
     }
 
     // Common report tests.

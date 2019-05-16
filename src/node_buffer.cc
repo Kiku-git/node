@@ -62,6 +62,7 @@ using v8::ArrayBufferView;
 using v8::Context;
 using v8::EscapableHandleScope;
 using v8::FunctionCallbackInfo;
+using v8::Global;
 using v8::Integer;
 using v8::Isolate;
 using v8::Just;
@@ -87,6 +88,10 @@ class CallbackInfo {
                                   FreeCallback callback,
                                   char* data,
                                   void* hint = nullptr);
+
+  CallbackInfo(const CallbackInfo&) = delete;
+  CallbackInfo& operator=(const CallbackInfo&) = delete;
+
  private:
   static void WeakCallback(const WeakCallbackInfo<CallbackInfo>&);
   inline void WeakCallback(Isolate* isolate);
@@ -95,11 +100,10 @@ class CallbackInfo {
                       FreeCallback callback,
                       char* data,
                       void* hint);
-  Persistent<ArrayBuffer> persistent_;
+  Global<ArrayBuffer> persistent_;
   FreeCallback const callback_;
   char* const data_;
   void* const hint_;
-  DISALLOW_COPY_AND_ASSIGN(CallbackInfo);
 };
 
 
@@ -417,7 +421,7 @@ MaybeLocal<Object> New(Environment* env,
   }
 
   if (uses_malloc) {
-    if (env->isolate_data()->uses_node_allocator()) {
+    if (!env->isolate_data()->uses_node_allocator()) {
       // We don't know for sure that the allocator is malloc()-based, so we need
       // to fall back to the FreeCallback variant.
       auto free_callback = [](char* data, void* hint) { free(data); };
@@ -1082,11 +1086,11 @@ void Initialize(Local<Object> target,
 
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "kMaxLength"),
-              Integer::NewFromUnsigned(env->isolate(), kMaxLength)).FromJust();
+              Integer::NewFromUnsigned(env->isolate(), kMaxLength)).Check();
 
   target->Set(env->context(),
               FIXED_ONE_BYTE_STRING(env->isolate(), "kStringMaxLength"),
-              Integer::New(env->isolate(), String::kMaxLength)).FromJust();
+              Integer::New(env->isolate(), String::kMaxLength)).Check();
 
   env->SetMethodNoSideEffect(target, "asciiSlice", StringSlice<ASCII>);
   env->SetMethodNoSideEffect(target, "base64Slice", StringSlice<BASE64>);
@@ -1104,7 +1108,8 @@ void Initialize(Local<Object> target,
 
   // It can be a nullptr when running inside an isolate where we
   // do not own the ArrayBuffer allocator.
-  if (ArrayBufferAllocator* allocator = env->isolate_data()->node_allocator()) {
+  if (NodeArrayBufferAllocator* allocator =
+          env->isolate_data()->node_allocator()) {
     uint32_t* zero_fill_field = allocator->zero_fill_field();
     Local<ArrayBuffer> array_buffer = ArrayBuffer::New(
         env->isolate(), zero_fill_field, sizeof(*zero_fill_field));

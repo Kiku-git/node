@@ -61,7 +61,7 @@ function isWarned(emitter) {
 }
 
 {
-  // set crlfDelay to float 100.5ms
+  // Set crlfDelay to float 100.5ms
   const fi = new FakeInput();
   const rli = new readline.Interface({
     input: fi,
@@ -73,7 +73,7 @@ function isWarned(emitter) {
 }
 
 {
-  // set crlfDelay to 5000ms
+  // Set crlfDelay to 5000ms
   const fi = new FakeInput();
   const rli = new readline.Interface({
     input: fi,
@@ -98,7 +98,7 @@ function isWarned(emitter) {
     rli.close();
   }
 
-  // default history size 30
+  // Default history size 30
   {
     const fi = new FakeInput();
     const rli = new readline.Interface(
@@ -126,7 +126,7 @@ function isWarned(emitter) {
     assert.ok(called);
   }
 
-  // sending a blank line
+  // Sending a blank line
   {
     const fi = new FakeInput();
     const rli = new readline.Interface(
@@ -172,7 +172,7 @@ function isWarned(emitter) {
     rli.close();
   }
 
-  // sending multiple newlines at once
+  // Sending multiple newlines at once
   {
     const fi = new FakeInput();
     const rli = new readline.Interface(
@@ -288,7 +288,7 @@ function isWarned(emitter) {
     }), delay * 2);
   }
 
-  // set crlfDelay to `Infinity` is allowed
+  // Set crlfDelay to `Infinity` is allowed
   {
     const fi = new FakeInput();
     const delay = 200;
@@ -515,7 +515,7 @@ function isWarned(emitter) {
     rli.close();
   }
 
-  // calling readline without `new`
+  // Calling readline without `new`
   {
     const fi = new FakeInput();
     const rli = readline.Interface(
@@ -531,7 +531,7 @@ function isWarned(emitter) {
     rli.close();
   }
 
-  // calling the question callback
+  // Calling the question callback
   {
     let called = false;
     const fi = new FakeInput();
@@ -576,7 +576,7 @@ function isWarned(emitter) {
       rli.close();
     }
 
-    // sending a multi-line question
+    // Sending a multi-line question
     {
       const fi = new FakeInput();
       const rli = new readline.Interface(
@@ -661,13 +661,13 @@ function isWarned(emitter) {
       });
       fi.emit('data', '💻');
 
-      // move left one character/code point
+      // Move left one character/code point
       fi.emit('keypress', '.', { name: 'left' });
       let cursorPos = rli._getCursorPos();
       assert.strictEqual(cursorPos.rows, 0);
       assert.strictEqual(cursorPos.cols, 0);
 
-      // move right one character/code point
+      // Move right one character/code point
       fi.emit('keypress', '.', { name: 'right' });
       cursorPos = rli._getCursorPos();
       assert.strictEqual(cursorPos.rows, 0);
@@ -695,7 +695,7 @@ function isWarned(emitter) {
       });
       fi.emit('data', '💻');
 
-      // move left one character/code point
+      // Move left one character/code point
       fi.emit('keypress', '.', { name: 'left' });
       let cursorPos = rli._getCursorPos();
       assert.strictEqual(cursorPos.rows, 0);
@@ -731,7 +731,7 @@ function isWarned(emitter) {
       });
       fi.emit('data', '💻');
 
-      // move left one character/code point
+      // Move left one character/code point
       fi.emit('keypress', '.', { name: 'right' });
       let cursorPos = rli._getCursorPos();
       assert.strictEqual(cursorPos.rows, 0);
@@ -1104,7 +1104,7 @@ function isWarned(emitter) {
   assert.strictEqual(internalReadline.getStringWidth('안녕하세요'), 10);
   assert.strictEqual(internalReadline.getStringWidth('A\ud83c\ude00BC'), 5);
 
-  // check if vt control chars are stripped
+  // Check if vt control chars are stripped
   assert.strictEqual(
     internalReadline.stripVTControlCharacters('\u001b[31m> \u001b[39m'),
     '> '
@@ -1272,3 +1272,26 @@ const crlfDelay = Infinity;
     }), delay);
   }
 });
+
+// Ensure that the _wordLeft method works even for large input
+{
+  const input = new Readable({
+    read() {
+      this.push('\x1B[1;5D'); // CTRL + Left
+      this.push(null);
+    },
+  });
+  const output = new Writable({
+    write: common.mustCall((data, encoding, cb) => {
+      assert.strictEqual(rl.cursor, rl.line.length - 1);
+      cb();
+    }),
+  });
+  const rl = new readline.createInterface({
+    input: input,
+    output: output,
+    terminal: true,
+  });
+  rl.line = `a${' '.repeat(1e6)}a`;
+  rl.cursor = rl.line.length;
+}

@@ -24,7 +24,6 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node_persistent.h"
 #include "memory_tracker-inl.h"
 #include "v8.h"
 #include <type_traits>  // std::remove_reference
@@ -40,6 +39,8 @@ class BaseObject : public MemoryRetainer {
   inline BaseObject(Environment* env, v8::Local<v8::Object> object);
   inline ~BaseObject() override;
 
+  BaseObject() = delete;
+
   // Returns the wrapped object.  Returns an empty handle when
   // persistent.IsEmpty() is true.
   inline v8::Local<v8::Object> object() const;
@@ -48,7 +49,7 @@ class BaseObject : public MemoryRetainer {
   // is associated with the passed Isolate in debug mode.
   inline v8::Local<v8::Object> object(v8::Isolate* isolate) const;
 
-  inline Persistent<v8::Object>& persistent();
+  inline v8::Global<v8::Object>& persistent();
 
   inline Environment* env() const;
 
@@ -60,7 +61,7 @@ class BaseObject : public MemoryRetainer {
   template <typename T>
   static inline T* FromJSObject(v8::Local<v8::Object> object);
 
-  // Make the `Persistent` a weak reference and, `delete` this object once
+  // Make the `v8::Global` a weak reference and, `delete` this object once
   // the JS object has been garbage collected.
   inline void MakeWeak();
 
@@ -73,11 +74,17 @@ class BaseObject : public MemoryRetainer {
   static inline v8::Local<v8::FunctionTemplate> MakeLazilyInitializedJSTemplate(
       Environment* env);
 
- private:
-  BaseObject();
+  // Setter/Getter pair for internal fields that can be passed to SetAccessor.
+  template <int Field>
+  static void InternalFieldGet(v8::Local<v8::String> property,
+                               const v8::PropertyCallbackInfo<v8::Value>& info);
+  template <int Field, bool (v8::Value::* typecheck)() const>
+  static void InternalFieldSet(v8::Local<v8::String> property,
+                               v8::Local<v8::Value> value,
+                               const v8::PropertyCallbackInfo<void>& info);
 
+ private:
   v8::Local<v8::Object> WrappedObject() const override;
-  bool IsRootNode() const override;
   static void DeleteMe(void* data);
 
   // persistent_handle_ needs to be at a fixed offset from the start of the
@@ -86,9 +93,9 @@ class BaseObject : public MemoryRetainer {
   // position of members in memory are predictable. For more information please
   // refer to `doc/guides/node-postmortem-support.md`
   friend int GenDebugSymbols();
-  friend class Environment;
+  friend class CleanupHookCallback;
 
-  Persistent<v8::Object> persistent_handle_;
+  v8::Global<v8::Object> persistent_handle_;
   Environment* env_;
 };
 

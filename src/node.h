@@ -64,6 +64,8 @@
 #include "v8-platform.h"  // NOLINT(build/include_order)
 #include "node_version.h"  // NODE_MODULE_VERSION
 
+#include <memory>
+
 #define NODE_MAKE_VERSION(major, minor, patch)                                \
   ((major) * 0x1000 + (minor) * 0x100 + (patch))
 
@@ -95,6 +97,14 @@
 # else
 #  define NODE_DEPRECATED(message, declarator) declarator
 # endif
+#endif
+
+#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
+// Internally, do not include util-inl.h into files unless they need it's
+// inline definitions.
+#else
+// Externally, it must be included for backwards API compatibility.
+#  include <util-inl.h>
 #endif
 
 // Forward-declare libuv loop
@@ -199,9 +209,16 @@ typedef intptr_t ssize_t;
 
 namespace node {
 
+class IsolateData;
+class Environment;
+
 // TODO(addaleax): Officially deprecate this and replace it with something
 // better suited for a public embedder API.
 NODE_EXTERN int Start(int argc, char* argv[]);
+
+// Tear down Node.js while it is running (there are active handles
+// in the loop and / or actively executing JavaScript code).
+NODE_EXTERN int Stop(Environment* env);
 
 // TODO(addaleax): Officially deprecate this and replace it with something
 // better suited for a public embedder API.
@@ -210,17 +227,36 @@ NODE_EXTERN void Init(int* argc,
                       int* exec_argc,
                       const char*** exec_argv);
 
-class ArrayBufferAllocator;
+class NodeArrayBufferAllocator;
 
+// An ArrayBuffer::Allocator class with some Node.js-specific tweaks. If you do
+// not have to use another allocator, using this class is recommended:
+// - It supports Buffer.allocUnsafe() and Buffer.allocUnsafeSlow() with
+//   uninitialized memory.
+// - It supports transferring, rather than copying, ArrayBuffers when using
+//   MessagePorts.
+class NODE_EXTERN ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+ public:
+  // If `always_debug` is true, create an ArrayBuffer::Allocator instance
+  // that performs additional integrity checks (e.g. make sure that only memory
+  // that was allocated by the it is also freed by it).
+  // This can also be set using the --debug-arraybuffer-allocations flag.
+  static std::unique_ptr<ArrayBufferAllocator> Create(
+      bool always_debug = false);
+
+ private:
+  virtual NodeArrayBufferAllocator* GetImpl() = 0;
+
+  friend class IsolateData;
+};
+
+// Legacy equivalents for ArrayBufferAllocator::Create().
 NODE_EXTERN ArrayBufferAllocator* CreateArrayBufferAllocator();
 NODE_EXTERN void FreeArrayBufferAllocator(ArrayBufferAllocator* allocator);
 
-class IsolateData;
-class Environment;
-
 class NODE_EXTERN MultiIsolatePlatform : public v8::Platform {
  public:
-  ~MultiIsolatePlatform() override { }
+  ~MultiIsolatePlatform() override = default;
   // Returns true if work was dispatched or executed. New tasks that are
   // posted during flushing of the queue are postponed until the next
   // flushing.
@@ -228,15 +264,42 @@ class NODE_EXTERN MultiIsolatePlatform : public v8::Platform {
   virtual void DrainTasks(v8::Isolate* isolate) = 0;
   virtual void CancelPendingDelayedTasks(v8::Isolate* isolate) = 0;
 
-  // These will be called by the `IsolateData` creation/destruction functions.
+  // This needs to be called between the calls to `Isolate::Allocate()` and
+  // `Isolate::Initialize()`, so that initialization can already start
+  // using the platform.
+  // When using `NewIsolate()`, this is taken care of by that function.
+  // This function may only be called once per `Isolate`.
   virtual void RegisterIsolate(v8::Isolate* isolate,
                                struct uv_loop_s* loop) = 0;
+  // This needs to be called right before calling `Isolate::Dispose()`.
+  // This function may only be called once per `Isolate`.
   virtual void UnregisterIsolate(v8::Isolate* isolate) = 0;
+  // The platform should call the passed function once all state associated
+  // with the given isolate has been cleaned up. This can, but does not have to,
+  // happen asynchronously.
+  virtual void AddIsolateFinishedCallback(v8::Isolate* isolate,
+                                          void (*callback)(void*),
+                                          void* data) = 0;
 };
 
+// Set up some Node.js-specific defaults for `params`, in particular
+// the ArrayBuffer::Allocator if it is provided, memory limits, and
+// possibly a code event handler.
+NODE_EXTERN void SetIsolateCreateParams(v8::Isolate::CreateParams* params,
+                                        ArrayBufferAllocator* allocator
+                                            = nullptr);
+// Set a number of callbacks for the `isolate`, in particular the Node.js
+// uncaught exception listener.
+NODE_EXTERN void SetIsolateUpForNode(v8::Isolate* isolate);
 // Creates a new isolate with Node.js-specific settings.
+// This is a convenience method equivalent to using SetIsolateCreateParams(),
+// Isolate::Allocate(), MultiIsolatePlatform::RegisterIsolate(),
+// Isolate::Initialize(), and SetIsolateUpForNode().
 NODE_EXTERN v8::Isolate* NewIsolate(ArrayBufferAllocator* allocator,
                                     struct uv_loop_s* event_loop);
+NODE_EXTERN v8::Isolate* NewIsolate(ArrayBufferAllocator* allocator,
+                                    struct uv_loop_s* event_loop,
+                                    MultiIsolatePlatform* platform);
 
 // Creates a new context with Node.js-specific tweaks.
 NODE_EXTERN v8::Local<v8::Context> NewContext(
@@ -256,6 +319,8 @@ NODE_EXTERN void FreeIsolateData(IsolateData* isolate_data);
 
 // TODO(addaleax): Add an official variant using STL containers, and move
 // per-Environment options parsing here.
+// Returns nullptr when the Environment cannot be created e.g. there are
+// pending JavaScript exceptions.
 NODE_EXTERN Environment* CreateEnvironment(IsolateData* isolate_data,
                                            v8::Local<v8::Context> context,
                                            int argc,
@@ -317,7 +382,7 @@ NODE_DEPRECATED("Use v8::Date::ValueOf() directly",
     (target)->DefineOwnProperty(context,                                      \
                                 constant_name,                                \
                                 constant_value,                               \
-                                constant_attributes).FromJust();              \
+                                constant_attributes).Check();                 \
   }                                                                           \
   while (0)
 
@@ -338,7 +403,7 @@ NODE_DEPRECATED("Use v8::Date::ValueOf() directly",
     (target)->DefineOwnProperty(context,                                      \
                                 constant_name,                                \
                                 constant_value,                               \
-                                constant_attributes).FromJust();              \
+                                constant_attributes).Check();                 \
   }                                                                           \
   while (0)
 
@@ -369,7 +434,7 @@ inline void NODE_SET_METHOD(v8::Local<v8::Object> recv,
   v8::Local<v8::String> fn_name = v8::String::NewFromUtf8(isolate, name,
       v8::NewStringType::kInternalized).ToLocalChecked();
   fn->SetName(fn_name);
-  recv->Set(context, fn_name, fn).FromJust();
+  recv->Set(context, fn_name, fn).Check();
 }
 #define NODE_SET_METHOD node::NODE_SET_METHOD
 
@@ -444,6 +509,10 @@ typedef void (*addon_context_register_func)(
     v8::Local<v8::Value> module,
     v8::Local<v8::Context> context,
     void* priv);
+
+enum ModuleFlags {
+  kLinked = 0x02
+};
 
 struct node_module {
   int nm_version;
@@ -532,6 +601,14 @@ extern "C" NODE_EXTERN void node_module_register(void* mod);
   /* NOLINTNEXTLINE (readability/null_usage) */                       \
   NODE_MODULE_CONTEXT_AWARE_X(modname, regfunc, NULL, 0)
 
+// Embedders can use this type of binding for statically linked native bindings.
+// It is used the same way addon bindings are used, except that linked bindings
+// can be accessed through `process._linkedBinding(modname)`.
+#define NODE_MODULE_LINKED(modname, regfunc)                               \
+  /* NOLINTNEXTLINE (readability/null_usage) */                            \
+  NODE_MODULE_CONTEXT_AWARE_X(modname, regfunc, NULL,                      \
+                              node::ModuleFlags::kLinked)
+
 /*
  * For backward compatibility in add-on modules.
  */
@@ -572,22 +649,11 @@ NODE_EXTERN void AtExit(Environment* env,
                         void (*cb)(void* arg),
                         void* arg = nullptr);
 
-typedef void (*promise_hook_func) (v8::PromiseHookType type,
-                                   v8::Local<v8::Promise> promise,
-                                   v8::Local<v8::Value> parent,
-                                   void* arg);
-
 typedef double async_id;
 struct async_context {
   ::node::async_id async_id;
   ::node::async_id trigger_async_id;
 };
-
-/* Registers an additional v8::PromiseHook wrapper. This API exists because V8
- * itself supports only a single PromiseHook. */
-NODE_EXTERN void AddPromiseHook(v8::Isolate* isolate,
-                                promise_hook_func fn,
-                                void* arg);
 
 /* This is a lot like node::AtExit, except that the hooks added via this
  * function are run before the AtExit ones and will always be registered
@@ -627,8 +693,15 @@ NODE_EXTERN async_context EmitAsyncInit(v8::Isolate* isolate,
                                         v8::Local<v8::String> name,
                                         async_id trigger_async_id = -1);
 
-/* Emit the destroy() callback. */
+/* Emit the destroy() callback. The overload taking an `Environment*` argument
+ * should be used when the Isolate’s current Context is not associated with
+ * a Node.js Environment, or when there is no current Context, for example
+ * when calling this function during garbage collection. In that case, the
+ * `Environment*` value should have been acquired previously, e.g. through
+ * `GetCurrentEnvironment()`. */
 NODE_EXTERN void EmitAsyncDestroy(v8::Isolate* isolate,
+                                  async_context asyncContext);
+NODE_EXTERN void EmitAsyncDestroy(Environment* env,
                                   async_context asyncContext);
 
 class InternalCallbackScope;
@@ -700,73 +773,45 @@ v8::MaybeLocal<v8::Value> MakeCallback(v8::Isolate* isolate,
 /* Helper class users can optionally inherit from. If
  * `AsyncResource::MakeCallback()` is used, then all four callbacks will be
  * called automatically. */
-class AsyncResource {
+class NODE_EXTERN AsyncResource {
  public:
   AsyncResource(v8::Isolate* isolate,
                 v8::Local<v8::Object> resource,
                 const char* name,
-                async_id trigger_async_id = -1)
-      : isolate_(isolate),
-        resource_(isolate, resource) {
-    async_context_ = EmitAsyncInit(isolate, resource, name,
-                                   trigger_async_id);
-  }
+                async_id trigger_async_id = -1);
 
-  virtual ~AsyncResource() {
-    EmitAsyncDestroy(isolate_, async_context_);
-    resource_.Reset();
-  }
+  virtual ~AsyncResource();
+
+  AsyncResource(const AsyncResource&) = delete;
+  void operator=(const AsyncResource&) = delete;
 
   v8::MaybeLocal<v8::Value> MakeCallback(
       v8::Local<v8::Function> callback,
       int argc,
-      v8::Local<v8::Value>* argv) {
-    return node::MakeCallback(isolate_, get_resource(),
-                              callback, argc, argv,
-                              async_context_);
-  }
+      v8::Local<v8::Value>* argv);
 
   v8::MaybeLocal<v8::Value> MakeCallback(
       const char* method,
       int argc,
-      v8::Local<v8::Value>* argv) {
-    return node::MakeCallback(isolate_, get_resource(),
-                              method, argc, argv,
-                              async_context_);
-  }
+      v8::Local<v8::Value>* argv);
 
   v8::MaybeLocal<v8::Value> MakeCallback(
       v8::Local<v8::String> symbol,
       int argc,
-      v8::Local<v8::Value>* argv) {
-    return node::MakeCallback(isolate_, get_resource(),
-                              symbol, argc, argv,
-                              async_context_);
-  }
+      v8::Local<v8::Value>* argv);
 
-  v8::Local<v8::Object> get_resource() {
-    return resource_.Get(isolate_);
-  }
-
-  async_id get_async_id() const {
-    return async_context_.async_id;
-  }
-
-  async_id get_trigger_async_id() const {
-    return async_context_.trigger_async_id;
-  }
+  v8::Local<v8::Object> get_resource();
+  async_id get_async_id() const;
+  async_id get_trigger_async_id() const;
 
  protected:
-  class CallbackScope : public node::CallbackScope {
+  class NODE_EXTERN CallbackScope : public node::CallbackScope {
    public:
-    explicit CallbackScope(AsyncResource* res)
-      : node::CallbackScope(res->isolate_,
-                            res->resource_.Get(res->isolate_),
-                            res->async_context_) {}
+    explicit CallbackScope(AsyncResource* res);
   };
 
  private:
-  v8::Isolate* isolate_;
+  Environment* env_;
   v8::Persistent<v8::Object> resource_;
   async_context async_context_;
 };

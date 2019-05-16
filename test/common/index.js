@@ -19,7 +19,8 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-/* eslint-disable node-core/required-modules, node-core/crypto-check */
+/* eslint-disable node-core/require-common-first, node-core/required-modules */
+/* eslint-disable node-core/crypto-check */
 'use strict';
 const process = global.process;  // Some tests tamper with the process global.
 const path = require('path');
@@ -48,8 +49,12 @@ const hasCrypto = Boolean(process.versions.openssl);
 
 // Check for flags. Skip this for workers (both, the `cluster` module and
 // `worker_threads`) and child processes.
+// If the binary was built without-ssl then the crypto flags are
+// invalid (bad option). The test itself should handle this case.
 if (process.argv.length === 2 &&
+    !process.env.NODE_SKIP_FLAG_CHECK &&
     isMainThread &&
+    hasCrypto &&
     module.parent &&
     require('cluster').isMaster) {
   // The copyright notice is relatively big and the flags could come afterwards.
@@ -74,13 +79,22 @@ if (process.argv.length === 2 &&
     const args = process.execArgv.map((arg) => arg.replace(/_/g, '-'));
     for (const flag of flags) {
       if (!args.includes(flag) &&
-          // If the binary was built without-ssl then the crypto flags are
-          // invalid (bad option). The test itself should handle this case.
-          hasCrypto &&
           // If the binary is build without `intl` the inspect option is
           // invalid. The test itself should handle this case.
           (process.features.inspector || !flag.startsWith('--inspect'))) {
-        throw new Error(`Test has to be started with the flag: '${flag}'`);
+        console.log(
+          'NOTE: The test started as a child_process using these flags:',
+          util.inspect(flags),
+          'Use NODE_SKIP_FLAG_CHECK to run the test with the original flags.'
+        );
+        const args = [...flags, ...process.execArgv, ...process.argv.slice(1)];
+        const options = { encoding: 'utf8', stdio: 'inherit' };
+        const result = spawnSync(process.execPath, args, options);
+        if (result.signal) {
+          process.kill(0, result.signal);
+        } else {
+          process.exit(result.status);
+        }
       }
     }
   }
@@ -258,49 +272,43 @@ let knownGlobals = [
   global,
   setImmediate,
   setInterval,
-  setTimeout
+  setTimeout,
+  queueMicrotask,
 ];
 
 if (global.gc) {
   knownGlobals.push(global.gc);
 }
 
-if (global.DTRACE_HTTP_SERVER_RESPONSE) {
-  knownGlobals.push(DTRACE_HTTP_SERVER_RESPONSE);
-  knownGlobals.push(DTRACE_HTTP_SERVER_REQUEST);
-  knownGlobals.push(DTRACE_HTTP_CLIENT_RESPONSE);
-  knownGlobals.push(DTRACE_HTTP_CLIENT_REQUEST);
-  knownGlobals.push(DTRACE_NET_STREAM_END);
-  knownGlobals.push(DTRACE_NET_SERVER_CONNECTION);
-}
-
-if (process.env.NODE_TEST_KNOWN_GLOBALS) {
-  const knownFromEnv = process.env.NODE_TEST_KNOWN_GLOBALS.split(',');
-  allowGlobals(...knownFromEnv);
-}
-
 function allowGlobals(...whitelist) {
   knownGlobals = knownGlobals.concat(whitelist);
 }
 
-function leakedGlobals() {
-  const leaked = [];
+if (process.env.NODE_TEST_KNOWN_GLOBALS !== '0') {
+  if (process.env.NODE_TEST_KNOWN_GLOBALS) {
+    const knownFromEnv = process.env.NODE_TEST_KNOWN_GLOBALS.split(',');
+    allowGlobals(...knownFromEnv);
+  }
 
-  for (const val in global) {
-    if (!knownGlobals.includes(global[val])) {
-      leaked.push(val);
+  function leakedGlobals() {
+    const leaked = [];
+
+    for (const val in global) {
+      if (!knownGlobals.includes(global[val])) {
+        leaked.push(val);
+      }
     }
+
+    return leaked;
   }
 
-  return leaked;
+  process.on('exit', function() {
+    const leaked = leakedGlobals();
+    if (leaked.length > 0) {
+      assert.fail(`Unexpected global(s) found: ${leaked.join(', ')}`);
+    }
+  });
 }
-
-process.on('exit', function() {
-  const leaked = leakedGlobals();
-  if (leaked.length > 0) {
-    assert.fail(`Unexpected global(s) found: ${leaked.join(', ')}`);
-  }
-});
 
 const mustCallChecks = [];
 
@@ -502,7 +510,11 @@ function _expectWarning(name, expected, code) {
   return mustCall((warning) => {
     const [ message, code ] = expected.shift();
     assert.strictEqual(warning.name, name);
-    assert.strictEqual(warning.message, message);
+    if (typeof message === 'string') {
+      assert.strictEqual(warning.message, message);
+    } else {
+      assert(message.test(warning.message));
+    }
     assert.strictEqual(warning.code, code);
   }, expected.length);
 }
@@ -615,6 +627,19 @@ function expectsError(fn, settings, exact) {
   return mustCall(innerFn, exact);
 }
 
+const suffix = 'This is caused by either a bug in Node.js ' +
+  'or incorrect usage of Node.js internals.\n' +
+  'Please open an issue with this stack trace at ' +
+  'https://github.com/nodejs/node/issues\n';
+
+function expectsInternalAssertion(fn, message) {
+  assert.throws(fn, {
+    message: `${message}\n${suffix}`,
+    name: 'Error',
+    code: 'ERR_INTERNAL_ASSERTION'
+  });
+}
+
 function skipIfInspectorDisabled() {
   if (!process.features.inspector) {
     skip('V8 inspector is disabled');
@@ -718,6 +743,7 @@ module.exports = {
   enoughTestCpu,
   enoughTestMem,
   expectsError,
+  expectsInternalAssertion,
   expectWarning,
   getArrayBufferViews,
   getBufferSources,
@@ -799,7 +825,7 @@ module.exports = {
     if (opensslCli !== null) return opensslCli;
 
     if (process.config.variables.node_shared_openssl) {
-      // use external command
+      // Use external command
       opensslCli = 'openssl';
     } else {
       // Use command built from sources included in Node.js repository
@@ -810,7 +836,7 @@ module.exports = {
 
     const opensslCmd = spawnSync(opensslCli, ['version']);
     if (opensslCmd.status !== 0 || opensslCmd.error !== undefined) {
-      // openssl command cannot be executed
+      // OpenSSL command cannot be executed
       opensslCli = false;
     }
     return opensslCli;

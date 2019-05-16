@@ -28,9 +28,8 @@
 #include "node.h"
 #include "node_binding.h"
 #include "node_mutex.h"
-#include "node_persistent.h"
 #include "tracing/trace_event.h"
-#include "util-inl.h"
+#include "util.h"
 #include "uv.h"
 #include "v8.h"
 
@@ -86,6 +85,11 @@ void GetSockOrPeerName(const v8::FunctionCallbackInfo<v8::Value>& args) {
   args.GetReturnValue().Set(err);
 }
 
+void PrintStackTrace(v8::Isolate* isolate, v8::Local<v8::StackTrace> stack);
+void PrintCaughtException(v8::Isolate* isolate,
+                          v8::Local<v8::Context> context,
+                          const v8::TryCatch& try_catch);
+
 void WaitForInspectorDisconnect(Environment* env);
 void SignalExit(int signo);
 #ifdef __POSIX__
@@ -101,7 +105,7 @@ namespace task_queue {
 void PromiseRejectCallback(v8::PromiseRejectMessage message);
 }  // namespace task_queue
 
-class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
+class NodeArrayBufferAllocator : public ArrayBufferAllocator {
  public:
   inline uint32_t* zero_fill_field() { return &zero_fill_field_; }
 
@@ -116,11 +120,13 @@ class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {
   virtual void RegisterPointer(void* data, size_t size) {}
   virtual void UnregisterPointer(void* data, size_t size) {}
 
+  NodeArrayBufferAllocator* GetImpl() final { return this; }
+
  private:
   uint32_t zero_fill_field_ = 1;  // Boolean but exposed as uint32 to JS land.
 };
 
-class DebuggingArrayBufferAllocator final : public ArrayBufferAllocator {
+class DebuggingArrayBufferAllocator final : public NodeArrayBufferAllocator {
  public:
   ~DebuggingArrayBufferAllocator() override;
   void* Allocate(size_t size) override;
@@ -211,10 +217,24 @@ class InternalCallbackScope {
   Environment* env_;
   async_context async_context_;
   v8::Local<v8::Object> object_;
-  Environment::AsyncCallbackScope callback_scope_;
+  AsyncCallbackScope callback_scope_;
   bool failed_ = false;
   bool pushed_ids_ = false;
   bool closed_ = false;
+};
+
+class DebugSealHandleScope {
+ public:
+  explicit inline DebugSealHandleScope(v8::Isolate* isolate)
+#ifdef DEBUG
+    : actual_scope_(isolate)
+#endif
+  {}
+
+ private:
+#ifdef DEBUG
+  v8::SealHandleScope actual_scope_;
+#endif
 };
 
 class ThreadPoolWork {
@@ -272,17 +292,97 @@ int ThreadPoolWork::CancelWork() {
 #endif  // __POSIX__ && !defined(__ANDROID__) && !defined(__CloudABI__)
 
 namespace credentials {
-bool SafeGetenv(const char* key, std::string* text);
+bool SafeGetenv(const char* key, std::string* text, Environment* env = nullptr);
 }  // namespace credentials
 
 void DefineZlibConstants(v8::Local<v8::Object> target);
-
+v8::Isolate* NewIsolate(v8::Isolate::CreateParams* params,
+                        uv_loop_t* event_loop,
+                        MultiIsolatePlatform* platform);
 v8::MaybeLocal<v8::Value> RunBootstrapping(Environment* env);
 v8::MaybeLocal<v8::Value> StartExecution(Environment* env,
                                          const char* main_script_id);
-namespace coverage {
-bool StartCoverageCollection(Environment* env);
+v8::MaybeLocal<v8::Object> GetPerContextExports(v8::Local<v8::Context> context);
+v8::MaybeLocal<v8::Value> ExecuteBootstrapper(
+    Environment* env,
+    const char* id,
+    std::vector<v8::Local<v8::String>>* parameters,
+    std::vector<v8::Local<v8::Value>>* arguments);
+void MarkBootstrapComplete(const v8::FunctionCallbackInfo<v8::Value>& args);
+
+struct InitializationResult {
+  int exit_code = 0;
+  std::vector<std::string> args;
+  std::vector<std::string> exec_args;
+  bool early_return = false;
+};
+InitializationResult InitializeOncePerProcess(int argc, char** argv);
+void TearDownOncePerProcess();
+enum class IsolateSettingCategories { kErrorHandlers, kMisc };
+void SetIsolateUpForNode(v8::Isolate* isolate, IsolateSettingCategories cat);
+void SetIsolateCreateParamsForNode(v8::Isolate::CreateParams* params);
+
+#if HAVE_INSPECTOR
+namespace profiler {
+void StartProfilers(Environment* env);
+void EndStartedProfilers(Environment* env);
 }
+#endif  // HAVE_INSPECTOR
+
+#ifdef _WIN32
+typedef SYSTEMTIME TIME_TYPE;
+#else  // UNIX, OSX
+typedef struct tm TIME_TYPE;
+#endif
+
+double GetCurrentTimeInMicroseconds();
+int WriteFileSync(const char* path, uv_buf_t buf);
+int WriteFileSync(v8::Isolate* isolate,
+                  const char* path,
+                  v8::Local<v8::String> string);
+
+class DiagnosticFilename {
+ public:
+  static void LocalTime(TIME_TYPE* tm_struct);
+
+  DiagnosticFilename(Environment* env,
+                     const char* prefix,
+                     const char* ext) :
+      filename_(MakeFilename(env->thread_id(), prefix, ext)) {}
+
+  DiagnosticFilename(uint64_t thread_id,
+                     const char* prefix,
+                     const char* ext) :
+      filename_(MakeFilename(thread_id, prefix, ext)) {}
+
+  const char* operator*() const { return filename_.c_str(); }
+
+ private:
+  static std::string MakeFilename(
+      uint64_t thread_id,
+      const char* prefix,
+      const char* ext);
+
+  std::string filename_;
+};
+
+class TraceEventScope {
+ public:
+  TraceEventScope(const char* category,
+                  const char* name,
+                  void* id) : category_(category), name_(name), id_(id) {
+    TRACE_EVENT_NESTABLE_ASYNC_BEGIN0(category_, name_, id_);
+  }
+  ~TraceEventScope() {
+    TRACE_EVENT_NESTABLE_ASYNC_END0(category_, name_, id_);
+  }
+
+ private:
+  const char* category_;
+  const char* name_;
+  void* id_;
+};
+
 }  // namespace node
 
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

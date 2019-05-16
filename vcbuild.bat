@@ -84,7 +84,8 @@ if /i "%1"=="noetw"         set noetw=1&goto arg-ok
 if /i "%1"=="ltcg"          set ltcg=1&goto arg-ok
 if /i "%1"=="licensertf"    set licensertf=1&goto arg-ok
 if /i "%1"=="test"          set test_args=%test_args% -J %common_test_suites%&set lint_cpp=1&set lint_js=1&set lint_md=1&goto arg-ok
-if /i "%1"=="test-ci"       set test_args=%test_args% %test_ci_args% -p tap --logfile test.tap %common_test_suites%&set cctest_args=%cctest_args% --gtest_output=tap:cctest.tap&goto arg-ok
+:: test-ci is deprecated
+if /i "%1"=="test-ci"       goto arg-ok
 if /i "%1"=="build-addons"   set build_addons=1&goto arg-ok
 if /i "%1"=="build-js-native-api-tests"   set build_js_native_api_tests=1&goto arg-ok
 if /i "%1"=="build-node-api-tests"   set build_node_api_tests=1&goto arg-ok
@@ -190,6 +191,7 @@ if defined config_flags     set configure_flags=%configure_flags% %config_flags%
 if defined target_arch      set configure_flags=%configure_flags% --dest-cpu=%target_arch%
 if defined openssl_no_asm   set configure_flags=%configure_flags% --openssl-no-asm
 if defined DEBUG_HELPER     set configure_flags=%configure_flags% --verbose
+if "%target_arch%"=="x86" if "%PROCESSOR_ARCHITECTURE%"=="AMD64" set configure_flags=%configure_flags% --no-cross-compiling
 
 if not exist "%~dp0deps\icu" goto no-depsicu
 if "%target%"=="Clean" echo deleting %~dp0deps\icu
@@ -211,7 +213,7 @@ if not "%target%"=="Clean" goto skip-clean
 rmdir /Q /S "%~dp0%config%\%TARGET_NAME%" > nul 2> nul
 :skip-clean
 
-if defined noprojgen if defined nobuild if not defined sign if not defined msi goto licensertf
+if defined noprojgen if defined nobuild goto :after-build
 
 @rem Set environment for msbuild
 
@@ -239,7 +241,7 @@ if defined msi (
     goto msbuild-not-found
   )
   if not exist "%VCINSTALLDIR%\..\MSBuild\Microsoft\WiX" (
-    echo Failed to find the Wix Toolset Visual Studio 2017 Extension
+    echo Failed to find the WiX Toolset Visual Studio 2017 Extension
     goto msbuild-not-found
   )
 )
@@ -265,10 +267,6 @@ echo Failed to find a suitable Visual Studio installation.
 echo Try to run in a "Developer Command Prompt" or consult
 echo https://github.com/nodejs/node/blob/master/BUILDING.md#windows-1
 goto exit
-
-:wix-not-found
-echo Build skipped. To generate installer, you need to install Wix.
-goto install-doctools
 
 :msbuild-found
 
@@ -305,7 +303,7 @@ where /R . /T *.gyp? >> .gyp_configure_stamp
 
 :msbuild
 @rem Skip build if requested.
-if defined nobuild goto sign
+if defined nobuild goto :after-build
 
 @rem Build the sln with msbuild.
 set "msbcpu=/m:2"
@@ -314,18 +312,24 @@ set "msbplatform=Win32"
 if "%target_arch%"=="x64" set "msbplatform=x64"
 if "%target_arch%"=="arm64" set "msbplatform=ARM64"
 if "%target%"=="Build" (
-  if defined no_cctest set target=rename_node_bin_win
-  if "%test_args%"=="" set target=rename_node_bin_win
+  if defined no_cctest set target=node
+  if "%test_args%"=="" set target=node
   if defined cctest set target="Build"
 )
-if "%target%"=="rename_node_bin_win" if exist "%config%\cctest.exe" del "%config%\cctest.exe"
+if "%target%"=="node" if exist "%config%\cctest.exe" del "%config%\cctest.exe"
 if defined msbuild_args set "extra_msbuild_args=%extra_msbuild_args% %msbuild_args%"
 msbuild node.sln %msbcpu% /t:%target% /p:Configuration=%config% /p:Platform=%msbplatform% /clp:NoItemAndPropertyList;Verbosity=minimal /nologo %extra_msbuild_args%
 if errorlevel 1 (
   if not defined project_generated echo Building Node with reused solution failed. To regenerate project files use "vcbuild projgen"
-  goto exit
+  exit /B 1
 )
 if "%target%" == "Clean" goto exit
+
+:after-build
+rd %config%
+if errorlevel 1 echo "Old build output exists at 'out\%config%'. Please remove." & exit /B
+if EXIST out\%config% mklink /D %config% out\%config%
+if errorlevel 1 exit /B
 
 :sign
 @rem Skip signing unless the `sign` option was specified.
@@ -338,7 +342,7 @@ if errorlevel 1 echo Failed to sign exe&goto exit
 @rem Skip license.rtf generation if not requested.
 if not defined licensertf goto stage_package
 
-%config%\node.exe tools\license2rtf.js < LICENSE > %config%\license.rtf
+%node_exe% tools\license2rtf.js < LICENSE > %config%\license.rtf
 if errorlevel 1 echo Failed to generate license.rtf&goto exit
 
 :stage_package
@@ -557,7 +561,7 @@ goto node-tests
 
 :node-test-inspect
 set USE_EMBEDDED_NODE_INSPECT=1
-%config%\node tools\test-npm-package.js --install deps\node-inspect test
+%node_exe% tools\test-npm-package.js --install deps\node-inspect test
 goto node-tests
 
 :node-tests
@@ -639,12 +643,12 @@ if defined lint_js_ci goto lint-js-ci
 if not defined lint_js goto lint-md-build
 if not exist tools\node_modules\eslint goto no-lint
 echo running lint-js
-%config%\node tools\node_modules\eslint\bin\eslint.js --cache --report-unused-disable-directives --rule "linebreak-style: 0" --ext=.js,.mjs,.md .eslintrc.js benchmark doc lib test tools
+%node_exe% tools\node_modules\eslint\bin\eslint.js --cache --report-unused-disable-directives --rule "linebreak-style: 0" --ext=.js,.mjs,.md .eslintrc.js benchmark doc lib test tools
 goto lint-md-build
 
 :lint-js-ci
 echo running lint-js-ci
-%config%\node tools\lint-js.js -J -f tap -o test-eslint.tap benchmark doc lib test tools
+%node_exe% tools\lint-js.js -J -f tap -o test-eslint.tap benchmark doc lib test tools
 goto lint-md-build
 
 :no-lint
@@ -667,7 +671,7 @@ for /D %%D IN (doc\*) do (
     set "lint_md_files="%%F" !lint_md_files!"
   )
 )
-%config%\node tools\lint-md.js -q -f %lint_md_files%
+%node_exe% tools\lint-md.js -q -f %lint_md_files%
 ENDLOCAL
 goto exit
 
@@ -677,7 +681,7 @@ del .used_configure_flags
 goto exit
 
 :help
-echo vcbuild.bat [debug/release] [msi] [doc] [test/test-ci/test-all/test-addons/test-js-native-api/test-node-api/test-benchmark/test-internet/test-pummel/test-simple/test-message/test-tick-processor/test-known-issues/test-node-inspect/test-check-deopts/test-npm/test-async-hooks/test-v8/test-v8-intl/test-v8-benchmarks/test-v8-all] [ignore-flaky] [static/dll] [noprojgen] [projgen] [small-icu/full-icu/without-intl] [nobuild] [nosnapshot] [noetw] [ltcg] [licensetf] [sign] [ia32/x86/x64] [vs2017] [download-all] [enable-vtune] [lint/lint-ci/lint-js/lint-js-ci/lint-md] [lint-md-build] [package] [build-release] [upload] [no-NODE-OPTIONS] [link-module path-to-module] [debug-http2] [debug-nghttp2] [clean] [cctest] [no-cctest] [openssl-no-asm]
+echo vcbuild.bat [debug/release] [msi] [doc] [test/test-all/test-addons/test-js-native-api/test-node-api/test-benchmark/test-internet/test-pummel/test-simple/test-message/test-tick-processor/test-known-issues/test-node-inspect/test-check-deopts/test-npm/test-async-hooks/test-v8/test-v8-intl/test-v8-benchmarks/test-v8-all] [ignore-flaky] [static/dll] [noprojgen] [projgen] [small-icu/full-icu/without-intl] [nobuild] [nosnapshot] [noetw] [ltcg] [licensetf] [sign] [ia32/x86/x64] [vs2017] [download-all] [enable-vtune] [lint/lint-ci/lint-js/lint-js-ci/lint-md] [lint-md-build] [package] [build-release] [upload] [no-NODE-OPTIONS] [link-module path-to-module] [debug-http2] [debug-nghttp2] [clean] [cctest] [no-cctest] [openssl-no-asm]
 echo Examples:
 echo   vcbuild.bat                          : builds release build
 echo   vcbuild.bat debug                    : builds debug build

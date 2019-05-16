@@ -1,13 +1,16 @@
 // Flags: --expose-internals
 
 'use strict';
-
+const common = require('../common');
 const { internalBinding } = require('internal/test/binding');
 const { getOptionValue } = require('internal/options');
 
 // Monkey patch before requiring anything
 class DummyParser {
-  constructor(type) {
+  constructor() {
+    this.test_type = null;
+  }
+  initialize(type) {
     this.test_type = type;
   }
 }
@@ -18,13 +21,13 @@ const binding =
     internalBinding('http_parser') : internalBinding('http_parser_llhttp');
 binding.HTTPParser = DummyParser;
 
-const common = require('../common');
 const assert = require('assert');
 const { spawn } = require('child_process');
 const { parsers } = require('_http_common');
 
 // Test _http_common was not loaded before monkey patching
 const parser = parsers.alloc();
+parser.initialize(DummyParser.REQUEST, {});
 assert.strictEqual(parser instanceof DummyParser, true);
 assert.strictEqual(parser.test_type, DummyParser.REQUEST);
 

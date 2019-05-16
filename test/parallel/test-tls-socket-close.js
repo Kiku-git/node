@@ -38,7 +38,7 @@ const tlsServer = tls.createServer({ cert, key }, (socket) => {
 let netSocket;
 // plain tcp server
 const netServer = net.createServer((socket) => {
-  // if client wants to use tls
+  // If client wants to use tls
   tlsServer.emit('connection', socket);
 
   netSocket = socket;
@@ -55,7 +55,7 @@ function connectClient(server) {
 
   tlsConnection.write('foo', 'utf8', common.mustCall(() => {
     assert(netSocket);
-    netSocket.setTimeout(1, common.mustCall(() => {
+    netSocket.setTimeout(common.platformTimeout(10), common.mustCall(() => {
       assert(tlsSocket);
       // This breaks if TLSSocket is already managing the socket:
       netSocket.destroy();

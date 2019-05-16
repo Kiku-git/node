@@ -93,35 +93,35 @@ hijackStderr(function(data) {
   errStrings.push(data);
 });
 
-// test console.log() goes to stdout
+// Test console.log() goes to stdout
 console.log('foo');
 console.log('foo', 'bar');
 console.log('%s %s', 'foo', 'bar', 'hop');
 console.log({ slashes: '\\\\' });
 console.log(custom_inspect);
 
-// test console.debug() goes to stdout
+// Test console.debug() goes to stdout
 console.debug('foo');
 console.debug('foo', 'bar');
 console.debug('%s %s', 'foo', 'bar', 'hop');
 console.debug({ slashes: '\\\\' });
 console.debug(custom_inspect);
 
-// test console.info() goes to stdout
+// Test console.info() goes to stdout
 console.info('foo');
 console.info('foo', 'bar');
 console.info('%s %s', 'foo', 'bar', 'hop');
 console.info({ slashes: '\\\\' });
 console.info(custom_inspect);
 
-// test console.error() goes to stderr
+// Test console.error() goes to stderr
 console.error('foo');
 console.error('foo', 'bar');
 console.error('%s %s', 'foo', 'bar', 'hop');
 console.error({ slashes: '\\\\' });
 console.error(custom_inspect);
 
-// test console.warn() goes to stderr
+// Test console.warn() goes to stderr
 console.warn('foo');
 console.warn('foo', 'bar');
 console.warn('%s %s', 'foo', 'bar', 'hop');
@@ -134,7 +134,7 @@ console.dir(custom_inspect, { showHidden: false });
 console.dir({ foo: { bar: { baz: true } } }, { depth: 0 });
 console.dir({ foo: { bar: { baz: true } } }, { depth: 1 });
 
-// test console.dirxml()
+// Test console.dirxml()
 console.dirxml(custom_inspect, custom_inspect);
 console.dirxml(
   { foo: { bar: { baz: true } } },
@@ -142,7 +142,7 @@ console.dirxml(
   { foo: { bar: { quux: true } } }
 );
 
-// test console.trace()
+// Test console.trace()
 console.trace('This is a %j %d', { formatted: 'trace' }, 10, 'foo');
 
 // Test console.time() and console.timeEnd() output
@@ -193,6 +193,9 @@ console.assert(false, '%s should', 'console.assert', 'not throw');
 assert.strictEqual(errStrings[errStrings.length - 1],
                    'Assertion failed: console.assert should not throw\n');
 
+console.assert(false);
+assert.strictEqual(errStrings[errStrings.length - 1], 'Assertion failed\n');
+
 console.assert(true, 'this should not throw');
 
 console.assert(true);
@@ -231,11 +234,11 @@ for (const expected of expectedStrings) {
 }
 
 assert.strictEqual(strings.shift(),
-                   "{ foo: 'bar',\n  [Symbol(nodejs.util.inspect.custom)]: " +
-                    '[Function: [nodejs.util.inspect.custom]] }\n');
+                   "{\n  foo: 'bar',\n  [Symbol(nodejs.util.inspect.custom)]:" +
+                    ' [Function: [nodejs.util.inspect.custom]]\n}\n');
 assert.strictEqual(strings.shift(),
-                   "{ foo: 'bar',\n  [Symbol(nodejs.util.inspect.custom)]: " +
-                    '[Function: [nodejs.util.inspect.custom]] }\n');
+                   "{\n  foo: 'bar',\n  [Symbol(nodejs.util.inspect.custom)]:" +
+                    ' [Function: [nodejs.util.inspect.custom]]\n}\n');
 assert.ok(strings.shift().includes('foo: [Object]'));
 assert.strictEqual(strings.shift().includes('baz'), false);
 assert.strictEqual(strings.shift(), 'inspect inspect\n');

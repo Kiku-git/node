@@ -24,7 +24,6 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include "node.h"
 #include "node_crypto.h"  // SSLWrap
 
 #include "async_wrap.h"
@@ -88,6 +87,8 @@ class TLSWrap : public AsyncWrap,
   void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(TLSWrap)
   SET_SELF_SIZE(TLSWrap)
+
+  std::string diagnostic_name() const override;
 
  protected:
   // Alternative to StreamListener::stream(), that returns a StreamBase instead
@@ -159,6 +160,9 @@ class TLSWrap : public AsyncWrap,
   static void SetVerifyMode(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void EnableSessionCallbacks(
       const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void EnableKeylogCallback(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void EnableTrace(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void EnableCertCb(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void DestroySSL(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void GetServername(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -173,6 +177,7 @@ class TLSWrap : public AsyncWrap,
   std::vector<uv_buf_t> pending_cleartext_input_;
   size_t write_size_ = 0;
   WriteWrap* current_write_ = nullptr;
+  bool in_dowrite_ = false;
   WriteWrap* current_empty_write_ = nullptr;
   bool write_callback_scheduled_ = false;
   bool started_ = false;
